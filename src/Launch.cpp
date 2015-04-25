@@ -1,65 +1,20 @@
-/*--------------------------------------------------------------- 
- * Copyright (c) 1999,2000,2001,2002,2003                              
- * The Board of Trustees of the University of Illinois            
- * All Rights Reserved.                                           
- *--------------------------------------------------------------- 
- * Permission is hereby granted, free of charge, to any person    
- * obtaining a copy of this software (Iperf) and associated       
- * documentation files (the "Software"), to deal in the Software  
- * without restriction, including without limitation the          
- * rights to use, copy, modify, merge, publish, distribute,        
- * sublicense, and/or sell copies of the Software, and to permit     
- * persons to whom the Software is furnished to do
- * so, subject to the following conditions: 
- *
- *     
- * Redistributions of source code must retain the above 
- * copyright notice, this list of conditions and 
- * the following disclaimers. 
- *
- *     
- * Redistributions in binary form must reproduce the above 
- * copyright notice, this list of conditions and the following 
- * disclaimers in the documentation and/or other materials 
- * provided with the distribution. 
- * 
- *     
- * Neither the names of the University of Illinois, NCSA, 
- * nor the names of its contributors may be used to endorse 
- * or promote products derived from this Software without
- * specific prior written permission. 
- * 
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND 
- * NONINFRINGEMENT. IN NO EVENT SHALL THE CONTIBUTORS OR COPYRIGHT 
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, 
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE
- * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. 
- * ________________________________________________________________
- * National Laboratory for Applied Network Research 
- * National Center for Supercomputing Applications 
- * University of Illinois at Urbana-Champaign 
- * http://www.ncsa.uiuc.edu
- * ________________________________________________________________ 
- *
- * Launch.cpp
- * by Kevin Gibbs <kgibbs@nlanr.net> 
- * ------------------------------------------------------------------- 
+/*---------------------------------------------------------------
  * Functions to launch new server and client threads from C while
  * the server and client are in C++.
  * The launch function for reporters is in Reporter.c since it is
  * in C and does not need a special launching function.
- * ------------------------------------------------------------------- */ 
+ * ------------------------------------------------------------------- */
+
+#define HEADERS()
 
 #include "headers.h"
+
 #include "Thread.h"
-#include "Settings.hpp"
-#include "Client.hpp"
-#include "Listener.hpp"
-#include "Server.hpp"
-#include "PerfSocket.hpp"
+#include "Settings.h"
+#include "Client.h"
+#include "Listener.h"
+#include "Server.h"
+#include "PerfSocket.h"
 
 /*
  * listener_spawn is responsible for creating a Listener class
@@ -93,7 +48,7 @@ void server_spawn( thread_Settings *thread) {
 
     // Start up the server
     theServer = new Server( thread );
-    
+
     // Run the test
     theServer->Run();
     DELETE_PTR( theServer);
@@ -154,12 +109,18 @@ void client_init( thread_Settings *clients ) {
     // For each of the needed threads create a copy of the
     // provided settings, unsetting the report flag and add
     // to the list of threads to start
+    if ( clients->mMode == kTest_DualTest && clients->mThreads > 1 )
+        setDummyDualHdr(clients);
+    else
+        unsetDummyDualHdr(clients);
     for (int i = 1; i < clients->mThreads; i++) {
         Settings_Copy( clients, &next );
         unsetReport( next );
         itr->runNow = next;
         itr = next;
     }
+    if ( clients->mMode == kTest_DualTest && clients->mThreads > 1 )
+        unsetDummyDualHdr(next);
 #ifndef HAVE_THREAD
     if ( next != NULL ) {
         // We don't have threads and we need to start a listener so

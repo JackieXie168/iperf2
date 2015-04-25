@@ -1,77 +1,86 @@
-/*--------------------------------------------------------------- 
- * Copyright (c) 1999,2000,2001,2002,2003                              
- * The Board of Trustees of the University of Illinois            
- * All Rights Reserved.                                           
- *--------------------------------------------------------------- 
- * Permission is hereby granted, free of charge, to any person    
- * obtaining a copy of this software (Iperf) and associated       
- * documentation files (the "Software"), to deal in the Software  
- * without restriction, including without limitation the          
- * rights to use, copy, modify, merge, publish, distribute,        
- * sublicense, and/or sell copies of the Software, and to permit     
- * persons to whom the Software is furnished to do
- * so, subject to the following conditions: 
- *
- *     
- * Redistributions of source code must retain the above 
- * copyright notice, this list of conditions and 
- * the following disclaimers. 
- *
- *     
- * Redistributions in binary form must reproduce the above 
- * copyright notice, this list of conditions and the following 
- * disclaimers in the documentation and/or other materials 
- * provided with the distribution. 
- * 
- *     
- * Neither the names of the University of Illinois, NCSA, 
- * nor the names of its contributors may be used to endorse 
- * or promote products derived from this Software without
- * specific prior written permission. 
- * 
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND 
- * NONINFRINGEMENT. IN NO EVENT SHALL THE CONTIBUTORS OR COPYRIGHT 
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, 
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE
- * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. 
- * ________________________________________________________________
- * National Laboratory for Applied Network Research 
- * National Center for Supercomputing Applications 
- * University of Illinois at Urbana-Champaign 
- * http://www.ncsa.uiuc.edu
- * ________________________________________________________________ 
- *
- * Settings.cpp
- * by Mark Gates <mgates@nlanr.net>
- * & Ajay Tirumala <tirumala@ncsa.uiuc.edu>
- * -------------------------------------------------------------------
+/*---------------------------------------------------------------
+
  * Stores and parses the initial values for all the global variables.
- * -------------------------------------------------------------------
- * headers
- * uses
- *   <stdlib.h>
- *   <stdio.h>
- *   <string.h>
- *
- *   <unistd.h>
  * ------------------------------------------------------------------- */
 
 #define HEADERS()
 
 #include "headers.h"
 
-#include "Settings.hpp"
+#include "Settings.h"
 #include "Locale.h"
 #include "SocketAddr.h"
 
 #include "util.h"
 
-#include "gnu_getopt.h"
-
 void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtSettings );
+
+/*******************************************************************
+ arg?  args                 (long_sample)    (env_sample)
+--------------------------  --------------------------------------
+1      no_argument          singleclient     IPERF_SINGLECLIENT
+2*     <empty>
+3*     <empty>
+4*     <empty>
+5*     <empty>
+6*     <empty>
+7*     <empty>
+8*     <empty>
+9*     <empty>
+0*     <empty>
+a*     <empty>
+b:     required_argument    bandwidth        IPERF_BANDWIDTH
+c:     required_argument    client           IPERF_CLIENT
+d      no_argument          dualtest         IPERF_DUALTEST
+e*     <empty>
+f:     required_argument    format           IPERF_FORMAT
+g*     <empty>
+h      no_argument          help
+i:     required_argument    interval         IPERF_INTERVAL
+j*     <empty>
+k:     required_argument    losspacketslog   IPERF_LOSS_PACKET_LOG
+l:     required_argument    len              IPERF_LEN
+m      no_argument          print_mss        IPERF_PRINT_MSS
+n:     required_argument    num              IPERF_NUM
+o:     required_argument    output
+p:     required_argument    port             IPERF_PORT
+q      no_argument          seqpacket        IPERF_SEQPACKET
+r      no_argument          tradeoff         IPERF_TRADEOFF
+s      no_argument          server           IPERF_SERVER
+t:     required_argument    time             IPERF_TIME
+u      no_argument          udp              IPERF_UDP
+v      no_argument          version
+w:     required_argument    window           TCP_WINDOW_SIZE
+x:     required_argument    reportexclude    IPERF_REPORTEXCLUDE
+y:     required_argument    reportstyle      IPERF_REPORTSTYLE
+z      no_argument          sctp             IPERF_SEQPACKET
+A*     <empty>
+B:     required_argument    bind             IPERF_BIND
+C      no_argument          compatibility    IPERF_COMPAT
+D      no_argument          daemon           IPERF_DAEMON
+E      no_argument          poisson          IPERF_POISSON
+F:     required_argument    file_input       IPERF_FILE_INPUT
+G*     <empty>
+H*     <empty>
+I      no_argument          stdin_input      IPERF_STDIN_INPUT
+J*     <empty>
+K*     <empty>
+L:     required_argument    listenport       IPERF_LISTENPORT
+M:     required_argument    mss              IPERF_MSS
+N      no_argument          nodelay          IPERF_NODELAY
+O:     required_argument    interface        IPERF_INTERFACE
+P:     required_argument    parallel         IPERF_PARALLEL
+Q:     required_argument    priority         IPERF_PRIORITY
+R      no_argument          remove
+S:     required_argument    tos              IPERF_TOS
+T:     required_argument    ttl              IPERF_TTL
+U      no_argument          single_udp       IPERF_SINGLE_UDP
+V      no_argument          ipv6_domain      IPERF_IPV6_DOMAIN
+W      no_argument          suggest_win_size IPERF_SUGGEST_WIN_SIZE
+X:     required_argument    burstrate        IPERF_BURSTRATE
+Y*     <empty>
+Z:     required_argument    linux-congestion IPERF_CONGESTION_CONTROL
+*******************************************************************/
 
 /* -------------------------------------------------------------------
  * command line options
@@ -90,6 +99,7 @@ const struct option long_options[] =
 {"format",     required_argument, NULL, 'f'},
 {"help",             no_argument, NULL, 'h'},
 {"interval",   required_argument, NULL, 'i'},
+{"losspacketslog", required_argument, NULL, 'k'},
 {"len",        required_argument, NULL, 'l'},
 {"print_mss",        no_argument, NULL, 'm'},
 {"num",        required_argument, NULL, 'n'},
@@ -103,6 +113,8 @@ const struct option long_options[] =
 {"window",     required_argument, NULL, 'w'},
 {"reportexclude", required_argument, NULL, 'x'},
 {"reportstyle",required_argument, NULL, 'y'},
+{"sctp",             no_argument, NULL, 'z'},
+{"seqpacket",        no_argument, NULL, 'q'},
 
 // more esoteric options
 {"bind",       required_argument, NULL, 'B'},
@@ -112,14 +124,18 @@ const struct option long_options[] =
 {"stdin_input",      no_argument, NULL, 'I'},
 {"mss",        required_argument, NULL, 'M'},
 {"nodelay",          no_argument, NULL, 'N'},
+{"interface",  required_argument, NULL, 'O'},
 {"listenport", required_argument, NULL, 'L'},
+{"priority",   required_argument, NULL, 'Q'},
 {"parallel",   required_argument, NULL, 'P'},
 {"remove",           no_argument, NULL, 'R'},
+{"burstrate",  required_argument, NULL, 'X'},
 {"tos",        required_argument, NULL, 'S'},
 {"ttl",        required_argument, NULL, 'T'},
 {"single_udp",       no_argument, NULL, 'U'},
 {"ipv6_domain",      no_argument, NULL, 'V'},
 {"suggest_win_size", no_argument, NULL, 'W'},
+{"poisson", no_argument, NULL, 'E'},
 {"linux-congestion", required_argument, NULL, 'Z'},
 {0, 0, 0, 0}
 };
@@ -135,6 +151,7 @@ const struct option env_options[] =
 {"IPERF_FORMAT",     required_argument, NULL, 'f'},
 // skip help
 {"IPERF_INTERVAL",   required_argument, NULL, 'i'},
+{"IPERF_LOSS_PACKET_LOG", required_argument, NULL, 'k'},
 {"IPERF_LEN",        required_argument, NULL, 'l'},
 {"IPERF_PRINT_MSS",        no_argument, NULL, 'm'},
 {"IPERF_NUM",        required_argument, NULL, 'n'},
@@ -156,20 +173,25 @@ const struct option env_options[] =
 {"IPERF_STDIN_INPUT",      no_argument, NULL, 'I'},
 {"IPERF_MSS",        required_argument, NULL, 'M'},
 {"IPERF_NODELAY",          no_argument, NULL, 'N'},
+{"IPERF_INTERFACE",  required_argument, NULL, 'O'},
 {"IPERF_LISTENPORT", required_argument, NULL, 'L'},
+{"IPERF_PRIORITY",   required_argument, NULL, 'Q'},
 {"IPERF_PARALLEL",   required_argument, NULL, 'P'},
+{"IPERF_BURSTRATE",  required_argument, NULL, 'X'},
 {"IPERF_TOS",        required_argument, NULL, 'S'},
 {"IPERF_TTL",        required_argument, NULL, 'T'},
 {"IPERF_SINGLE_UDP",       no_argument, NULL, 'U'},
 {"IPERF_IPV6_DOMAIN",      no_argument, NULL, 'V'},
-{"IPERF_SUGGEST_WIN_SIZE", required_argument, NULL, 'W'},
+{"IPERF_SUGGEST_WIN_SIZE", no_argument, NULL, 'W'},
+{"IPERF_POISSON", no_argument, NULL, 'E'},
 {"IPERF_CONGESTION_CONTROL",  required_argument, NULL, 'Z'},
 {0, 0, 0, 0}
 };
 
 #define SHORT_OPTIONS()
 
-const char short_options[] = "1b:c:df:hi:l:mn:o:p:rst:uvw:x:y:B:CDF:IL:M:NP:RS:T:UVWZ:";
+const char short_options[] =
+ "1b:c:df:hi:k:l:mn:o:p:qrst:uvw:x:y:zB:CDEF:IL:M:NO:P:Q:RS:T:UVWX:Z:";
 
 /* -------------------------------------------------------------------
  * defaults
@@ -201,8 +223,8 @@ void Settings_Initialize( thread_Settings *main ) {
     main->mMode         = kTest_Normal;  // -d,  mMode == kTest_DualTest
     main->mFormat       = 'a';           // -f,  adaptive bits
     // skip help                         // -h,
-    //main->mBufLenSet  = false;         // -l,	
-    main->mBufLen       = 128 * 1024;      // -l,  8 Kbyte
+    //main->mBufLenSet  = false;         // -l,
+    main->mBufLen       = 128 * 1024;      // -l,  128 Kbyte
     //main->mInterval     = 0;           // -i,  ie. no periodic bw reports
     //main->mPrintMSS   = false;         // -m,  don't print MSS
     // mAmount is time also              // -n,  N/A
@@ -220,7 +242,7 @@ void Settings_Initialize( thread_Settings *main ) {
     //main->mCompat     = false;         // -C,  run in Compatibility mode
     //main->mDaemon     = false;         // -D,  run as a daemon
     //main->mFileInput  = false;         // -F,
-    //main->mFileName     = NULL;        // -F,  filename 
+    //main->mFileName     = NULL;        // -F,  filename
     //main->mStdin      = false;         // -I,  default not stdin
     //main->mListenPort   = 0;           // -L,  listen port
     //main->mMSS          = 0;           // -M,  ie. don't set MSS
@@ -239,19 +261,23 @@ void Settings_Copy( thread_Settings *from, thread_Settings **into ) {
     memcpy( *into, from, sizeof(thread_Settings) );
     if ( from->mHost != NULL ) {
         (*into)->mHost = new char[ strlen(from->mHost) + 1];
-        strcpy( (*into)->mHost, from->mHost );
+        strncpy( (*into)->mHost, from->mHost, strlen(from->mHost) );
+        (*into)->mHost[strlen(from->mHost)] = '\0';
     }
     if ( from->mOutputFileName != NULL ) {
         (*into)->mOutputFileName = new char[ strlen(from->mOutputFileName) + 1];
-        strcpy( (*into)->mOutputFileName, from->mOutputFileName );
+        strncpy( (*into)->mOutputFileName, from->mOutputFileName, strlen(from->mOutputFileName) );
+        (*into)->mOutputFileName[strlen(from->mOutputFileName)] = '\0';
     }
     if ( from->mLocalhost != NULL ) {
         (*into)->mLocalhost = new char[ strlen(from->mLocalhost) + 1];
-        strcpy( (*into)->mLocalhost, from->mLocalhost );
+        strncpy( (*into)->mLocalhost, from->mLocalhost, strlen(from->mLocalhost) );
+        (*into)->mLocalhost[strlen(from->mLocalhost)] = '\0';
     }
     if ( from->mFileName != NULL ) {
         (*into)->mFileName = new char[ strlen(from->mFileName) + 1];
-        strcpy( (*into)->mFileName, from->mFileName );
+        strncpy( (*into)->mFileName, from->mFileName, strlen(from->mFileName) );
+        (*into)->mFileName[strlen(from->mFileName)] = '\0';
     }
     // Zero out certain entries
     (*into)->mTID = thread_zeroid();
@@ -294,12 +320,12 @@ void Settings_ParseEnvironment( thread_Settings *mSettings ) {
 void Settings_ParseCommandLine( int argc, char **argv, thread_Settings *mSettings ) {
     int option;
     while ( (option =
-             gnu_getopt_long( argc, argv, short_options,
+             obsd_getopt_long( argc, argv, short_options,
                               long_options, NULL )) != EOF ) {
-        Settings_Interpret( option, gnu_optarg, mSettings );
+        Settings_Interpret( option, obsd_optarg, mSettings );
     }
 
-    for ( int i = gnu_optind; i < argc; i++ ) {
+    for ( int i = obsd_optind; i < argc; i++ ) {
         fprintf( stderr, "%s: ignoring extra argument -- %s\n", argv[0], argv[i] );
     }
 } // end ParseCommandLine
@@ -316,6 +342,9 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
         case '1': // Single Client
             setSingleClient( mExtSettings );
             break;
+        case 'X':
+            mExtSettings->mBurstRate = atoi(optarg);
+            break;
         case 'b': // UDP bandwidth
             if ( !isUDP( mExtSettings ) ) {
                 fprintf( stderr, warn_implied_udp, option );
@@ -327,7 +356,7 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
             }
 
             Settings_GetLowerCaseArg(optarg,outarg);
-            mExtSettings->mUDPRate = byte_atoi(outarg);
+            mExtSettings->mUDPRate = (unsigned long) byte_atoi(outarg);
             setUDP( mExtSettings );
 
             // if -l has already been processed, mBufLenSet is true
@@ -339,7 +368,8 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
 
         case 'c': // client mode w/ server host to connect to
             mExtSettings->mHost = new char[ strlen( optarg ) + 1 ];
-            strcpy( mExtSettings->mHost, optarg );
+            strncpy( mExtSettings->mHost, optarg, strlen( optarg ) );
+            mExtSettings->mHost[strlen( optarg )] = '\0';
 
             if ( mExtSettings->mThreadMode == kMode_Unknown ) {
                 // Test for Multicast
@@ -375,8 +405,8 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
             break;
 
         case 'h': // print help and exit
-            fprintf(stderr, usage_long1);
-            fprintf(stderr, usage_long2);
+            fprintf(stderr, "%s", usage_long1);
+            fprintf(stderr, "%s", usage_long2);
             exit(1);
             break;
 
@@ -388,9 +418,24 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
             }
             break;
 
+        case 'k' : /* filename for logging packet loss */
+            if ( !isUDP( mExtSettings ) ) {
+                fprintf( stderr, warn_implied_udp, option );
+            }
+
+            if ( mExtSettings->mThreadMode != kMode_Client ) {
+                fprintf( stderr, warn_invalid_server_option, option );
+                break;
+            }
+
+            mExtSettings->lossPacketsFileName = new char[strlen(optarg)+1];
+            strncpy( mExtSettings->lossPacketsFileName, optarg, strlen(optarg));
+            mExtSettings->lossPacketsFileName[strlen(optarg)] = '\0';
+            break;
+
         case 'l': // length of each buffer
             Settings_GetUpperCaseArg(optarg,outarg);
-            mExtSettings->mBufLen = byte_atoi( outarg );
+            mExtSettings->mBufLen = (int) byte_atoi( outarg );
             setBuflenSet( mExtSettings );
             if ( !isUDP( mExtSettings ) ) {
                  if ( mExtSettings->mBufLen < (int) sizeof( client_hdr ) &&
@@ -427,7 +472,8 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
         case 'o' : // output the report and other messages into the file
             unsetSTDOUT( mExtSettings );
             mExtSettings->mOutputFileName = new char[strlen(optarg)+1];
-            strcpy( mExtSettings->mOutputFileName, optarg);
+            strncpy( mExtSettings->mOutputFileName, optarg, strlen(optarg));
+            mExtSettings->mOutputFileName[strlen(optarg)]='\0';
             break;
 
         case 'p': // server port
@@ -473,7 +519,7 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
             // so don't overwrite that value.
             if ( !isBuflenSet( mExtSettings ) ) {
                 mExtSettings->mBufLen = kDefault_UDPBufLen;
-            } else if ( mExtSettings->mBufLen < (int) ( sizeof( UDP_datagram ) 
+            } else if ( mExtSettings->mBufLen < (int) ( sizeof( UDP_datagram )
                         + sizeof( client_hdr ) ) &&
                         !isCompat( mExtSettings ) ) {
                 setCompat( mExtSettings );
@@ -482,18 +528,26 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
             break;
 
         case 'v': // print version and exit
-            fprintf( stderr, version );
+            fprintf( stderr, "%s", version );
             exit(1);
             break;
 
         case 'w': // TCP window size (socket buffer size)
             Settings_GetUpperCaseArg(optarg,outarg);
-            mExtSettings->mTCPWin = byte_atoi(outarg);
+            mExtSettings->mTCPWin = (int) byte_atoi(outarg);
 
             if ( mExtSettings->mTCPWin < 2048 ) {
                 fprintf( stderr, warn_window_small, mExtSettings->mTCPWin );
             }
             break;
+
+		case 'q': // 
+	 	    setSeqpacket( mExtSettings );
+	 	    break;
+
+		case 'z': // SCTP
+		    if ( !isSCTP( mExtSettings ) ) setSCTP( mExtSettings );
+		    break;
 
         case 'x': // Limit Reports
             while ( *optarg != '\0' ) {
@@ -540,7 +594,8 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
             // more esoteric options
         case 'B': // specify bind address
             mExtSettings->mLocalhost = new char[ strlen( optarg ) + 1 ];
-            strcpy( mExtSettings->mLocalhost, optarg );
+            strncpy( mExtSettings->mLocalhost, optarg, strlen( optarg ) );
+            mExtSettings->mLocalhost[strlen( optarg )]='\0';
             // Test for Multicast
             iperf_sockaddr temp;
             SockAddr_setHostname( mExtSettings->mLocalhost, &temp,
@@ -572,7 +627,8 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
 
             setFileInput( mExtSettings );
             mExtSettings->mFileName = new char[strlen(optarg)+1];
-            strcpy( mExtSettings->mFileName, optarg);
+            strncpy( mExtSettings->mFileName, optarg, strlen(optarg));
+            mExtSettings->mFileName[strlen(optarg)]='\0';
             break;
 
         case 'I' : // Set the stdin as the input source
@@ -584,7 +640,8 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
             setFileInput( mExtSettings );
             setSTDIN( mExtSettings );
             mExtSettings->mFileName = new char[strlen("<stdin>")+1];
-            strcpy( mExtSettings->mFileName,"<stdin>");
+            strncpy( mExtSettings->mFileName, "<stdin>", strlen("<stdin>"));
+            mExtSettings->mFileName[strlen("<stdin>")]='\0';
             break;
 
         case 'L': // Listen Port (bidirectional testing client-side)
@@ -599,11 +656,21 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
         case 'M': // specify TCP MSS (maximum segment size)
             Settings_GetUpperCaseArg(optarg,outarg);
 
-            mExtSettings->mMSS = byte_atoi( outarg );
+            mExtSettings->mMSS = (int) byte_atoi( outarg );
             break;
 
         case 'N': // specify TCP nodelay option (disable Jacobson's Algorithm)
             setNoDelay( mExtSettings );
+            break;
+
+        case 'O': // specify interface to bind to (multicast)
+            if(strlen(outarg) < IFNAMSIZ) {
+                setCustInterface ( mExtSettings );
+                mExtSettings->mCustInterface = new char[strlen(optarg)+1];
+                strncpy(mExtSettings->mCustInterface, optarg, strlen(optarg));
+                mExtSettings->mCustInterface[strlen(optarg)]='\0';
+            } else
+                fprintf( stderr, warn_interface_invalid_ignored, option);
             break;
 
         case 'P': // number of client threads
@@ -629,6 +696,12 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
             mExtSettings->mTOS = strtol( optarg, NULL, 0 );
             break;
 
+        case 'Q': // protocol-defined priority
+            // the zero base here allows the user to specify
+            // "0x#" hex, "0#" octal, and "#" decimal numbers
+            mExtSettings->mPriority = strtol( optarg, NULL, 0 );
+            break;
+
         case 'T': // time-to-live for multicast
             mExtSettings->mTTL = atoi( optarg );
             break;
@@ -639,7 +712,7 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
 
         case 'V': // IPv6 Domain
             setIPV6( mExtSettings );
-            if ( mExtSettings->mThreadMode == kMode_Server 
+            if ( mExtSettings->mThreadMode == kMode_Server
                  && mExtSettings->mLocalhost != NULL ) {
                 // Test for Multicast
                 iperf_sockaddr temp;
@@ -662,15 +735,28 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
             fprintf( stderr, "The -W option is not available in this release\n");
             break;
 
+        case 'E' :
+            if ( !isUDP( mExtSettings ) ) {
+                fprintf( stderr, warn_implied_udp, option );
+            }
+
+            if ( mExtSettings->mThreadMode != kMode_Client ) {
+                fprintf( stderr, warn_invalid_server_option, option );
+                break;
+            }
+            setPoisson( mExtSettings );
+            break;
+
         case 'Z':
 #ifdef TCP_CONGESTION
-	    setCongestionControl( mExtSettings );
-	    mExtSettings->mCongestion = new char[strlen(optarg)+1];
-	    strcpy( mExtSettings->mCongestion, optarg);
+            setCongestionControl( mExtSettings );
+            mExtSettings->mCongestion = new char[strlen(optarg)+1];
+            strncpy( mExtSettings->mCongestion, optarg, strlen(optarg));
+            mExtSettings->mCongestion[strlen(optarg)]='\0';
 #else
             fprintf( stderr, "The -Z option is not available on this operating system\n");
 #endif
-	    break;
+        break;
 
         default: // ignore unknown
             break;
@@ -679,20 +765,22 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
 
 void Settings_GetUpperCaseArg(const char *inarg, char *outarg) {
 
-    int len = strlen(inarg);
-    strcpy(outarg,inarg);
+    int len = (int) strlen(inarg);
+    strncpy(outarg, inarg, len);
+    outarg[len]='\0';
 
-    if ( (len > 0) && (inarg[len-1] >='a') 
+    if ( (len > 0) && (inarg[len-1] >='a')
          && (inarg[len-1] <= 'z') )
         outarg[len-1]= outarg[len-1]+'A'-'a';
 }
 
 void Settings_GetLowerCaseArg(const char *inarg, char *outarg) {
 
-    int len = strlen(inarg);
-    strcpy(outarg,inarg);
+    int len = (int) strlen(inarg);
+    strncpy(outarg, inarg, len);
+    outarg[len]='\0';
 
-    if ( (len > 0) && (inarg[len-1] >='A') 
+    if ( (len > 0) && (inarg[len-1] >='A')
          && (inarg[len-1] <= 'Z') )
         outarg[len-1]= outarg[len-1]-'A'+'a';
 }
@@ -701,12 +789,12 @@ void Settings_GetLowerCaseArg(const char *inarg, char *outarg) {
  * Settings_GenerateListenerSettings
  * Called to generate the settings to be passed to the Listener
  * instance that will handle dual testings from the client side
- * this should only return an instance if it was called on 
- * the thread_Settings instance generated from the command line 
- * for client side execution 
+ * this should only return an instance if it was called on
+ * the thread_Settings instance generated from the command line
+ * for client side execution
  */
 void Settings_GenerateListenerSettings( thread_Settings *client, thread_Settings **listener ) {
-    if ( !isCompat( client ) && 
+    if ( !isCompat( client ) &&
          (client->mMode == kTest_DualTest || client->mMode == kTest_TradeOff) ) {
         *listener = new thread_Settings;
         memcpy(*listener, client, sizeof( thread_Settings ));
@@ -725,11 +813,13 @@ void Settings_GenerateListenerSettings( thread_Settings *client, thread_Settings
         (*listener)->mThreadMode = kMode_Listener;
         if ( client->mHost != NULL ) {
             (*listener)->mHost = new char[strlen( client->mHost ) + 1];
-            strcpy( (*listener)->mHost, client->mHost );
+            strncpy( (*listener)->mHost, client->mHost, strlen( client->mHost ) );
+            (*listener)->mHost[strlen( client->mHost )]='\0';
         }
         if ( client->mLocalhost != NULL ) {
             (*listener)->mLocalhost = new char[strlen( client->mLocalhost ) + 1];
-            strcpy( (*listener)->mLocalhost, client->mLocalhost );
+            strncpy( (*listener)->mLocalhost, client->mLocalhost, strlen( client->mLocalhost ) );
+            (*listener)->mLocalhost[strlen( client->mLocalhost )]='\0';
         }
     } else {
         *listener = NULL;
@@ -740,16 +830,17 @@ void Settings_GenerateListenerSettings( thread_Settings *client, thread_Settings
  * Settings_GenerateSpeakerSettings
  * Called to generate the settings to be passed to the Speaker
  * instance that will handle dual testings from the server side
- * this should only return an instance if it was called on 
- * the thread_Settings instance generated from the command line 
+ * this should only return an instance if it was called on
+ * the thread_Settings instance generated from the command line
  * for server side execution. This should be an inverse operation
- * of GenerateClientHdr. 
+ * of GenerateClientHdr.
  */
-void Settings_GenerateClientSettings( thread_Settings *server, 
+void Settings_GenerateClientSettings( thread_Settings *server,
                                       thread_Settings **client,
                                       client_hdr *hdr ) {
     int flags = ntohl(hdr->flags);
-    if ( (flags & HEADER_VERSION1) != 0 ) {
+    if ( (flags & HEADER_VERSION1) != 0 &&
+         (flags & INVALID_DUAL_HDR) == 0 ) {
         *client = new thread_Settings;
         memcpy(*client, server, sizeof( thread_Settings ));
         setCompat( (*client) );
@@ -774,7 +865,7 @@ void Settings_GenerateClientSettings( thread_Settings *server,
 #else
             (*client)->mAmount |= 0xFFFFFFFF00000000;
 #endif
-            (*client)->mAmount = -(*client)->mAmount;
+            (*client)->mAmount = (~(*client)->mAmount) + 1;
         }
         (*client)->mFileName   = NULL;
         (*client)->mHost       = NULL;
@@ -785,16 +876,17 @@ void Settings_GenerateClientSettings( thread_Settings *server,
         (*client)->mThreadMode = kMode_Client;
         if ( server->mLocalhost != NULL ) {
             (*client)->mLocalhost = new char[strlen( server->mLocalhost ) + 1];
-            strcpy( (*client)->mLocalhost, server->mLocalhost );
+            strncpy( (*client)->mLocalhost, server->mLocalhost, strlen( server->mLocalhost ) );
+            (*client)->mLocalhost[strlen( server->mLocalhost )]='\0';
         }
         (*client)->mHost = new char[REPORT_ADDRLEN];
         if ( ((sockaddr*)&server->peer)->sa_family == AF_INET ) {
-            inet_ntop( AF_INET, &((sockaddr_in*)&server->peer)->sin_addr, 
+            inet_ntop( AF_INET, &((sockaddr_in*)&server->peer)->sin_addr,
                        (*client)->mHost, REPORT_ADDRLEN);
         }
 #ifdef HAVE_IPV6
           else {
-            inet_ntop( AF_INET6, &((sockaddr_in6*)&server->peer)->sin6_addr, 
+            inet_ntop( AF_INET6, &((sockaddr_in6*)&server->peer)->sin6_addr,
                        (*client)->mHost, REPORT_ADDRLEN);
         }
 #endif
@@ -839,5 +931,8 @@ void Settings_GenerateClientHdr( thread_Settings *client, client_hdr *hdr ) {
     }
     if ( client->mMode == kTest_DualTest ) {
         hdr->flags |= htonl(RUN_NOW);
+        if ( isDummyDualHdr(client) ) {
+            hdr->flags |= htonl(INVALID_DUAL_HDR);
+        }
     }
 }
