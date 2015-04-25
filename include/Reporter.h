@@ -63,10 +63,57 @@ struct server_hdr;
 
 #define NUM_REPORT_STRUCTS 10000
 #define NUM_MULTI_SLOTS    5
+// If the minimum latency exceeds the boundaries below
+// assume the clocks are not synched and suppress the
+// latency output. Units are seconds
+#define UNREALISTIC_LATENCYMINMIN -1
+#define UNREALISTIC_LATENCYMINMAX 60
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/*
+ *
+ * Used for end/end latency measurements
+ *
+ */
+typedef struct TransitStats {
+    double maxTransit;
+    double minTransit;
+    double sumTransit;
+    double lastTransit;
+    double meanTransit;
+    double m2Transit;
+    double vdTransit;
+    int cntTransit;
+    double totmaxTransit;
+    double totminTransit;
+    double totsumTransit;
+    int totcntTransit;
+    double totmeanTransit;
+    double totm2Transit;
+    double totvdTransit;
+} TransitStats;    
+
+typedef struct ReadStats {
+    int cntRead;
+    int totcntRead;
+    int bins[8];
+    int totbins[8];
+    int binsize;
+} ReadStats;    
+
+typedef struct WriteStats {
+    int WriteCnt;
+    int WriteErr;
+    int TCPretry;
+    int totWriteCnt;
+    int totWriteErr;
+    int totTCPretry;
+    int lastTCPretry;
+    int cwnd;
+} WriteStats;    
 
 /*
  * This struct contains all important information from the sending or
@@ -77,8 +124,11 @@ typedef struct ReportStruct {
     max_size_t packetLen;
     struct timeval packetTime;
     struct timeval sentTime;
+    int errwrite;
     int emptyreport;
+    int socket;
 } ReportStruct;
+
 
 /*
  * The type field of ReporterData is a bitmask
@@ -90,6 +140,11 @@ typedef struct ReportStruct {
 #define    CONNECTION_REPORT    0x00000008
 #define    MULTIPLE_REPORT      0x00000010
 
+typedef union {
+    ReadStats read;
+    WriteStats write;
+} TCPStats;
+
 typedef struct Transfer_Info {
     void *reserved_delay;
     int transferID;
@@ -97,19 +152,22 @@ typedef struct Transfer_Info {
     int cntError;
     int cntOutofOrder;
     int cntDatagrams;
-    double maxTransit;
-    double minTransit;
-    double sumTransit;
-    int cntTransit;
+    int IPGcnt;
+    int socket;
+    TransitStats transit;
+    TCPStats tcp;
     // Hopefully int64_t's
     max_size_t TotalLen;
     double jitter;
     double startTime;
     double endTime;
+    double IPGsum;
     // chars
     char   mFormat;                 // -f
+    char   mEnhanced;               // -e
     u_char mTTL;                    // -T
     char   mUDP;
+    char   mTCP;
     char   free;
 } Transfer_Info;
 
@@ -135,6 +193,8 @@ typedef struct ReporterData {
     int mBufLen;                    // -l
     int mMSS;                       // -M
     int mTCPWin;                    // -w
+    max_size_t mUDPRate;            // -b or -u
+    RateUnits mUDPRateUnits;        // -b is either bw or pps
     /*   flags is a BitMask of old bools
         bool   mBufLenSet;              // -l
         bool   mCompat;                 // -C
@@ -156,7 +216,6 @@ typedef struct ReporterData {
     max_size_t TotalLen;
     max_size_t lastTotal;
     // doubles
-    double lastTransit;
     // shorts
     unsigned short mPort;           // -p
     // structs or miscellaneous
@@ -166,6 +225,7 @@ typedef struct ReporterData {
     struct timeval packetTime;
     struct timeval nextTime;
     struct timeval intervalTime;
+    struct timeval IPGstart;
 } ReporterData;
 
 typedef struct MultiHeader {

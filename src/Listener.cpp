@@ -118,7 +118,7 @@ Listener::~Listener() {
  *          spawn a new Server thread. 
  * ------------------------------------------------------------------- */ 
 void Listener::Run( void ) {
-#ifdef WIN32
+#if 0 // ifdef WIN32 removed to allow Windows to use multi-threaded UDP server 
     if ( isUDP( mSettings ) && !isSingleUDP( mSettings ) ) {
         UDPSingleServer();
     } else
@@ -163,8 +163,19 @@ void Listener::Run( void ) {
                 break;
             }
             if ( sInterupted != 0 ) {
-                close( server->mSock );
-                break;
+		// In the case of -r, ignore the clients alarm
+		if (
+#if HAVE_DECL_SIGALRM
+sInterupted == SIGALRM
+#else
+0
+#endif
+		    ) {
+		    sInterupted = 0;
+		} else {
+		    close( server->mSock );
+		    break;
+		}
             }
             // Reset Single Client Stuff
             if ( isSingleClient( mSettings ) && clients == NULL ) {
@@ -453,9 +464,15 @@ void Listener::Accept( thread_Settings *server ) {
             // accept a connection
             server->mSock = accept( mSettings->mSock, 
                                     (sockaddr*) &server->peer, &server->size_peer );
-            if ( server->mSock == INVALID_SOCKET &&  errno == EINTR ) {
-                continue;
-            }
+            if ( server->mSock == INVALID_SOCKET && 
+#if WIN32
+		 WSAGetLastError() == WSAEINTR
+#else
+		 errno == EINTR
+#endif
+	     ) {
+		 continue;
+		 }
         }
     }
     server->size_local = sizeof(iperf_sockaddr); 
@@ -670,47 +687,4 @@ void Listener::UDPSingleServer( ) {
     Settings_Destroy( server );
 }
 
-/* -------------------------------------------------------------------- 
- * Run the server as a daemon  
- * --------------------------------------------------------------------*/ 
-
-void Listener::runAsDaemon(const char *pname, int facility) {
-#ifndef WIN32 
-    pid_t pid; 
-
-    /* Create a child process & if successful, exit from the parent process */ 
-    if ( (pid = fork()) == -1 ) {
-        fprintf( stderr, "error in first child create\n");     
-        exit(0); 
-    } else if ( pid != 0 ) {
-        exit(0); 
-    }
-
-    /* Try becoming the session leader, once the parent exits */
-    if ( setsid() == -1 ) {           /* Become the session leader */ 
-        fprintf( stderr, "Cannot change the session group leader\n"); 
-    } else {
-    } 
-    signal(SIGHUP,SIG_IGN); 
-
-
-    /* Now fork() and get released from the terminal */  
-    if ( (pid = fork()) == -1 ) {
-        fprintf( stderr, "error\n");   
-        exit(0); 
-    } else if ( pid != 0 ) {
-        exit(0); 
-    }
-
-    chdir("."); 
-    fprintf( stderr, "Running Iperf Server as a daemon\n"); 
-    fprintf( stderr, "The Iperf daemon process ID : %d\n",((int)getpid())); 
-    fflush(stderr); 
-
-    fclose(stdin); 
-#else 
-    fprintf( stderr, "Use the precompiled windows version for service (daemon) option\n"); 
-#endif  
-
-}
 
