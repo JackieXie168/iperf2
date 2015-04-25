@@ -382,9 +382,9 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
 
         case 'i': // specify interval between periodic bw reports
             mExtSettings->mInterval = atof( optarg );
-            if ( mExtSettings->mInterval < 0.5 ) {
+            if ( mExtSettings->mInterval < SMALLEST_INTERVAL ) {
                 fprintf (stderr, report_interval_small, mExtSettings->mInterval);
-                mExtSettings->mInterval = 0.5;
+                mExtSettings->mInterval = SMALLEST_INTERVAL;
             }
             break;
 

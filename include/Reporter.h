@@ -61,7 +61,7 @@ struct server_hdr;
 
 #include "Settings.hpp"
 
-#define NUM_REPORT_STRUCTS 700
+#define NUM_REPORT_STRUCTS 7000
 #define NUM_MULTI_SLOTS    5
 
 #ifdef __cplusplus

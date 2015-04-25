@@ -301,7 +301,7 @@ const char opt_estimate[]=
 "Optimal Estimate\n";
 
 const char report_interval_small[] =
-"WARNING: interval too small, increasing from %3.2f to 0.5 seconds.\n";
+"WARNING: interval too small, increasing from %3.3f to 5 milliseconds.\n";
 
 const char warn_invalid_server_option[] =
 "WARNING: option -%c is not valid for server mode\n";

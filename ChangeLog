@@ -1,7 +1,12 @@
-2010-07-08 Richard Hartmann <richih.mailinglist@gmail.com>
+2.0.6 change set (rjmcmahon@rjmcmahon.com) March 2014
+o Increase the shared memory for report headers reducing mutex contention.
+o Needed to increase performance.
+o Minor code change that should be platform/os independent
 
-* update man page to include info on option to set TOS/DSCP bits (-S)
-
+2014-3010 Robert McMahon <rjmcmahon@rjmcmahon.com>
+* increased NUN_REPORT_HEADERS to reduce conditional semaphore contention
+* Allowed for small report intervals (5 ms vs 500 ms)
+	
 2010-07-08 Jon Dugan <jdugan@x1024.net>
 
 * bumped default TCP send/recv buffer to 128K (this is not the kernel buffer

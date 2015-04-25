@@ -69,6 +69,9 @@
 extern "C" {
 #endif
 
+/* Smallest report interval supported. Units is seconds */
+#define SMALLEST_INTERVAL 0.005
+
 // server/client mode
 typedef enum ThreadMode {
     kMode_Unknown = 0,
