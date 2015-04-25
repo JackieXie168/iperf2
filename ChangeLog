@@ -1,3 +1,42 @@
+2.0.8 change set (as of 1/12/2015)
+	o Fix portability, compile and test with Linux, Win10, Win7, WinXP, MacOS and Android
+	o Client now requires -u for UDP (no longer defaults to UDP with -b)
+	o Maintain legacy report formats
+	o Support for -e to get enhanced reports
+	o Support TCP rate limited streams (via the -b) using token bucket
+	o Support packets per second (UDP) via pps as units, (e.g. -b 1000pps)
+	o Display PPS in both client and server reports (UDP)
+	o Support realtime scheduler as a command line option (--realtime or -z)
+	o Improve client tx code path so actual tx offerred rate will converge to the -b value
+	o Improve accuracy of microsecond delay calls (in platform independent manner)
+	o (Use of Kalman filter to predict delay errors and adjust delays per predicted error)
+	o Display target loop time in initial client header (UDP)
+	o Fix final latency report sent from server to client (UDP)
+	o Include standard deviation in latency output
+	o Suppress unrealistic latency output (-/-/-/-)
+	o Support SO_SNDTIMEO on send so socket write won't block beyond -t (TCP)
+	o Use clock_gettime if available (preferred over gettimeofday())
+	o TCP write and error counts (TCP retries and CWND for linux)
+	o TCP read count, TCP read histogram (8 bins)
+	o Server will close the socket after -t seconds of no traffic
+
+2.0.7 change set (rjmcmahon@rjmcmahon.com) August 2014
+	o Linux only version which supports end/end latency (assumes clocks synched)
+	o Support for smaller report interval  (5 milliseconds or greater)
+	o End/end latency with UDP (mean/min/max), display in milliseconds with resolution of microseconds
+	o Socket read timeouts (server only) so iperf reports occur regardless of no received packets
+	o Report timestamps now display millisecond resolution
+	o Local bind supports port value using colon as delimeter (-B 10.10.10.1:60001)
+	o Use linux realtime scheduler and packet level timestamps for improved latency accuracy
+	o Suggest PTP on client and server to synch clocks to microsecond
+	o Suggest a quality reference for the PTP grandmaster such as a GPS disciplined oscillator from companies like Spectracom
+
+2.0.6 change set (rjmcmahon@rjmcmahon.com) March 2014
+	o Increase the shared memory for report headers reducing mutex contention.
+	o Needed to increase performance.
+	o Minor code change that should be platform/os independent
+
+
 2014-3010 Robert McMahon <rjmcmahon@rjmcmahon.com>
 * increased NUN_REPORT_HEADERS to reduce conditional semaphore contention
 * Allowed for small report intervals (5 ms vs 500 ms)
