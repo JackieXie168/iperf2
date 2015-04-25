@@ -1,6 +1,10 @@
-2010-07-08 Richard Hartmann <richih.mailinglist@gmail.com>
+2012-05-03 Reda Noushi <reda_noushi@yahoo.com>
 
-* update man page to include info on option to set TOS/DSCP bits (-S)
+* added Source Specific Multicast iperf support for IPV4:
+ . -O -X server options
+ . reporting
+ . configure.ac check
+* cleaned up all compiler warnings (unchecked return values for write, chdir)
 
 2010-07-08 Jon Dugan <jdugan@x1024.net>
 
