@@ -94,7 +94,7 @@ Listener::Listener( thread_Settings *inSettings ) {
     mBuf = new char[ mSettings->mBufLen ];
 
     // open listening socket 
-    Listen( ); 
+    Listen(); 
     ReportSettings( inSettings );
 
 } // end Listener 
@@ -104,9 +104,11 @@ Listener::Listener( thread_Settings *inSettings ) {
  * ------------------------------------------------------------------- */ 
 Listener::~Listener() {
     if ( mSettings->mSock != INVALID_SOCKET ) {
+      if (!isNAT(mSettings) || isOnServer(mSettings)) {
         int rc = close( mSettings->mSock );
         WARN_errno( rc == SOCKET_ERROR, "close" );
         mSettings->mSock = INVALID_SOCKET;
+      } // else we should have an active server using the socket
     }
     DELETE_ARRAY( mBuf );
 } // end ~Listener 
@@ -231,12 +233,18 @@ void Listener::Run( void ) {
                     Settings_GenerateClientSettings( server, &tempSettings, 
                                                       hdr );
                 }
-            }
-    
+            }    
     
             if ( tempSettings != NULL ) {
                 client_init( tempSettings );
-                if ( tempSettings->mMode == kTest_DualTest ) {
+		if (isNAT(tempSettings) && isOnServer(tempSettings)) {
+		  // reuse the accepted connection socket in the client thread
+		  tempSettings->mSock = server->mSock;
+		  tempSettings->mPort = SockAddr_getPort(&(server->peer));
+		}
+		server->mMode = tempSettings->mMode;
+                if ( tempSettings->mMode == kTest_DualTest ||
+		     tempSettings->mMode == kTest_Reverse) {
 #ifdef HAVE_THREAD
                     server->runNow =  tempSettings;
 #else
@@ -262,8 +270,8 @@ void Listener::Run( void ) {
 #endif
             thread_start( server );
     
-            // create a new socket
-            if ( UDP ) {
+            // create a new socket (except on NAT clients)
+            if ( UDP && !isNAT(mSettings)) {
                 mSettings->mSock = -1; 
                 Listen( );
             }
@@ -292,6 +300,9 @@ void Listener::Listen( ) {
     int rc;
 
     SockAddr_localAddr( mSettings );
+
+    if (!isOnServer(mSettings) && isNAT(mSettings))
+      return;
 
     // create an internet TCP socket
     int type = (isUDP( mSettings )  ?  SOCK_DGRAM  :  SOCK_STREAM);
@@ -416,7 +427,7 @@ void Listener::McastSetTTL( int val ) {
 void Listener::Accept( thread_Settings *server ) {
 
     server->size_peer = sizeof(iperf_sockaddr); 
-    if ( isUDP( server ) ) {
+    if ( isUDP( server ) && !isNAT( server ) ) {
         /* ------------------------------------------------------------------- 
          * Do the equivalent of an accept() call for UDP sockets. This waits 
          * on a listening UDP socket until we get a datagram. 
@@ -445,6 +456,24 @@ void Listener::Accept( thread_Settings *server ) {
             }
             Mutex_Unlock( &clients_mutex );
         }
+    } else if ( isUDP( server ) && isNAT( server ) && !isOnServer( server ) ) {
+        // client side fake accept on already connected UDP socket
+        int rc;
+        server->mSock = INVALID_SOCKET;
+        while ( server->mSock == INVALID_SOCKET ) {
+            rc = recv( mSettings->mSock, mBuf, mSettings->mBufLen, 0 );
+            FAIL_errno( rc == SOCKET_ERROR, "recv", mSettings );
+            server->mSock = mSettings->mSock;
+            server->mPort = mSettings->mPort;
+	    getpeername( server->mSock, (sockaddr*) &server->peer,
+			 &server->size_peer );
+        }
+    } else if (isNAT(server) && !isOnServer( server ) ) {
+        // client side fake accept on already connected TCP socket
+        server->mSock = mSettings->mSock;
+	server->mPort = mSettings->mPort;
+	getpeername( server->mSock, (sockaddr*) &server->peer,
+		     &server->size_peer );
     } else {
         // Handles interupted accepts. Returns the newly connected socket.
         server->mSock = INVALID_SOCKET;
@@ -480,7 +509,6 @@ void Listener::UDPSingleServer( ) {
     }
     Settings_Copy( mSettings, &server );
     server->mThreadMode = kMode_Server;
-
 
     // Accept each packet, 
     // If there is no existing client, then start  
@@ -606,7 +634,7 @@ void Listener::UDPSingleServer( ) {
                          (sockaddr*) &server->peer, 
                          server->size_peer );
                 close( mSettings->mSock );
-                mSettings->mSock = -1; 
+                mSettings->mSock = INVALID_SOCKET; 
                 Listen( );
                 continue;
             }

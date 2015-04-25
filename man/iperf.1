@@ -76,8 +76,9 @@ Set the domain to IPv6
 .BR -x ", " --reportexclude " "
 [CDMSV]   exclude C(connection) D(data) M(multicast) S(settings) V(server) reports
 .TP
-.BR -y ", " --reportstyle " C|c"
-if set to C or c report results as CSV (comma separated values)
+.BR -y ", " --reportstyle " C|c or J|k"
+if set to C or c report results as CSV (comma separated values), if
+set to J or j report results as JSON object
 .SH "SERVER SPECIFIC OPTIONS"
 .TP
 .BR -s ", " --server " "
@@ -100,6 +101,12 @@ run in client mode, connecting to <host>
 .BR -d ", " --dualtest " "
 Do a bidirectional test simultaneously
 .TP
+.BR -E ", " --reverse " "
+run client in server mode, i.e. ask server to send data to us
+.TP
+.BR -1 ", " --nat " "
+client is behind a NAT (for -r and -E)
+.TP
 .BR -n ", " --num " \fIn\fR[KM]"
 number of bytes to transmit (instead of -t)
 .TP
@@ -117,9 +124,6 @@ input the data to be transmitted from stdin
 .TP
 .BR -L ", " --listenport " \fIn\fR"
 port to recieve bidirectional tests back on
-.TP
-.BR -S " \fIn\fR"
-hex value of TOS/DSCP bits (e.g. 0xb8 for EF)
 .TP
 .BR -P ", " --parallel " \fIn\fR"
 number of parallel client threads to run
@@ -140,13 +144,12 @@ Exit statuses are inconsistent.
 The threading implementation is rather heinous.
 .SH AUTHORS
 Iperf was originally written by Mark Gates and Alex Warshavsky.
-Man page and maintenance by Jon Dugan <jdugan at x1024 dot net>.
+Man page and maintence by Jon Dugan <jdugan at x1024 dot net>.
 Other contributions from Ajay Tirumala, Jim Ferguson,
 Feng Qin,
 Kevin Gibbs,
 John Estabrook <jestabro at ncsa.uiuc.edu>,
 Andrew Gallatin <gallatin at gmail.com>,
 Stephen Hemminger <shemminger at linux-foundation.org>
-Richard Hartmann <richih.mailinglist@gmail.com>
 .SH "SEE ALSO"
 http://iperf.sourceforge.net/

@@ -84,6 +84,7 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
 const struct option long_options[] =
 {
 {"singleclient",     no_argument, NULL, '1'},
+{"nat",              no_argument, NULL, '2'},
 {"bandwidth",  required_argument, NULL, 'b'},
 {"client",     required_argument, NULL, 'c'},
 {"dualtest",         no_argument, NULL, 'd'},
@@ -108,6 +109,7 @@ const struct option long_options[] =
 {"bind",       required_argument, NULL, 'B'},
 {"compatibility",    no_argument, NULL, 'C'},
 {"daemon",           no_argument, NULL, 'D'},
+{"reverse",          no_argument, NULL, 'E'},
 {"file_input", required_argument, NULL, 'F'},
 {"stdin_input",      no_argument, NULL, 'I'},
 {"mss",        required_argument, NULL, 'M'},
@@ -129,6 +131,7 @@ const struct option long_options[] =
 const struct option env_options[] =
 {
 {"IPERF_SINGLECLIENT",     no_argument, NULL, '1'},
+{"IPERF_NAT",              no_argument, NULL, '2'},
 {"IPERF_BANDWIDTH",  required_argument, NULL, 'b'},
 {"IPERF_CLIENT",     required_argument, NULL, 'c'},
 {"IPERF_DUALTEST",         no_argument, NULL, 'd'},
@@ -158,6 +161,7 @@ const struct option env_options[] =
 {"IPERF_NODELAY",          no_argument, NULL, 'N'},
 {"IPERF_LISTENPORT", required_argument, NULL, 'L'},
 {"IPERF_PARALLEL",   required_argument, NULL, 'P'},
+{"IPERF_REVERSE",          no_argument, NULL, 'E'},
 {"IPERF_TOS",        required_argument, NULL, 'S'},
 {"IPERF_TTL",        required_argument, NULL, 'T'},
 {"IPERF_SINGLE_UDP",       no_argument, NULL, 'U'},
@@ -169,7 +173,7 @@ const struct option env_options[] =
 
 #define SHORT_OPTIONS()
 
-const char short_options[] = "1b:c:df:hi:l:mn:o:p:rst:uvw:x:y:B:CDF:IL:M:NP:RS:T:UVWZ:";
+const char short_options[] = "12b:c:df:hi:l:mn:o:p:rst:uvw:x:y:B:CDEF:IL:M:NP:RS:T:UVWZ:";
 
 /* -------------------------------------------------------------------
  * defaults
@@ -315,6 +319,13 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
     switch ( option ) {
         case '1': // Single Client
             setSingleClient( mExtSettings );
+            break;
+        case '2': // NAT Client
+            if ( mExtSettings->mThreadMode != kMode_Client ) {
+                fprintf( stderr, warn_invalid_server_option, option );
+                break;
+            }
+            setNAT( mExtSettings );
             break;
         case 'b': // UDP bandwidth
             if ( !isUDP( mExtSettings ) ) {
@@ -531,6 +542,10 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
                 case 'C':
                     mExtSettings->mReportMode = kReport_CSV;
                     break;
+                case 'j':
+                case 'J':
+                    mExtSettings->mReportMode = kReport_JSON;
+                    break;
                 default:
                     fprintf( stderr, warn_invalid_report_style, optarg );
             }
@@ -562,6 +577,14 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
 
         case 'D': // Run as a daemon
             setDaemon( mExtSettings );
+            break;
+
+        case 'E': // test mode reverse
+            if ( mExtSettings->mThreadMode != kMode_Client ) {
+                fprintf( stderr, warn_invalid_server_option, option );
+                break;
+            }
+            mExtSettings->mMode = kTest_Reverse;
             break;
 
         case 'F' : // Get the input for the data stream from a file
@@ -699,6 +722,7 @@ void Settings_GetLowerCaseArg(const char *inarg, char *outarg) {
 
 /*
  * Settings_GenerateListenerSettings
+ *
  * Called to generate the settings to be passed to the Listener
  * instance that will handle dual testings from the client side
  * this should only return an instance if it was called on 
@@ -706,8 +730,10 @@ void Settings_GetLowerCaseArg(const char *inarg, char *outarg) {
  * for client side execution 
  */
 void Settings_GenerateListenerSettings( thread_Settings *client, thread_Settings **listener ) {
-    if ( !isCompat( client ) && 
-         (client->mMode == kTest_DualTest || client->mMode == kTest_TradeOff) ) {
+     if ( !isCompat( client ) && 
+         (client->mMode == kTest_DualTest || 
+	  client->mMode == kTest_TradeOff ||
+ 	  client->mMode == kTest_Reverse) ) {
         *listener = new thread_Settings;
         memcpy(*listener, client, sizeof( thread_Settings ));
         setCompat( (*listener) );
@@ -738,6 +764,7 @@ void Settings_GenerateListenerSettings( thread_Settings *client, thread_Settings
 
 /*
  * Settings_GenerateSpeakerSettings
+ *
  * Called to generate the settings to be passed to the Speaker
  * instance that will handle dual testings from the server side
  * this should only return an instance if it was called on 
@@ -753,6 +780,7 @@ void Settings_GenerateClientSettings( thread_Settings *server,
         *client = new thread_Settings;
         memcpy(*client, server, sizeof( thread_Settings ));
         setCompat( (*client) );
+        setOnServer( (*client) );
         (*client)->mTID = thread_zeroid();
         (*client)->mPort       = (unsigned short) ntohl(hdr->mPort);
         (*client)->mThreads    = ntohl(hdr->numThreads);
@@ -780,8 +808,19 @@ void Settings_GenerateClientSettings( thread_Settings *server,
         (*client)->mHost       = NULL;
         (*client)->mLocalhost  = NULL;
         (*client)->mOutputFileName = NULL;
-        (*client)->mMode       = ((flags & RUN_NOW) == 0 ?
-                                   kTest_TradeOff : kTest_DualTest);
+
+	if ((flags & RUN_DUAL) != 0) {
+	  (*client)->mMode = kTest_DualTest;
+	} else if ((flags & RUN_REV) != 0) {
+	  (*client)->mMode = kTest_Reverse;
+	} else {
+	  (*client)->mMode = kTest_TradeOff;
+	}
+
+	if ((flags & RUN_NAT) != 0) {
+	  setNAT( (*client) );
+	}
+
         (*client)->mThreadMode = kMode_Client;
         if ( server->mLocalhost != NULL ) {
             (*client)->mLocalhost = new char[strlen( server->mLocalhost ) + 1];
@@ -825,8 +864,11 @@ void Settings_GenerateClientHdr( thread_Settings *client, client_hdr *hdr ) {
     } else {
         hdr->mWinBand  = htonl(client->mTCPWin);
     }
-    if ( client->mListenPort != 0 ) {
+    if ( client->mListenPort != 0 && !isNAT(client)) {
         hdr->mPort  = htonl(client->mListenPort);
+    } else if (isNAT(client)) {
+        // for reporting, fill in the correct local port
+        hdr->mPort  = htonl(SockAddr_getPort(&(client->local)));
     } else {
         hdr->mPort  = htonl(client->mPort);
     }
@@ -837,7 +879,16 @@ void Settings_GenerateClientHdr( thread_Settings *client, client_hdr *hdr ) {
         hdr->mAmount    = htonl((long)client->mAmount);
         hdr->mAmount &= htonl( 0x7FFFFFFF );
     }
-    if ( client->mMode == kTest_DualTest ) {
-        hdr->flags |= htonl(RUN_NOW);
+    if ( client->mMode != kTest_Normal ) {
+      // flags for reverese direction testing
+      if ( client->mMode == kTest_DualTest) {
+        hdr->flags |= htonl(RUN_DUAL);
+      } 
+      if ( client->mMode == kTest_Reverse) {
+        hdr->flags |= htonl(RUN_REV);
+      }
+      if ( isNAT(client)) {
+        hdr->flags |= htonl(RUN_NAT);
+      }
     }
 }
