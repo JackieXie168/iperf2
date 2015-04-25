@@ -80,6 +80,8 @@
 #include "List.h"
 #include "util.h" 
 
+extern struct acptq acceptedTqh;
+
 /* ------------------------------------------------------------------- 
  * Stores local hostname and socket info. 
  * ------------------------------------------------------------------- */ 
@@ -93,8 +95,42 @@ Listener::Listener( thread_Settings *inSettings ) {
     // initialize buffer
     mBuf = new char[ mSettings->mBufLen ];
 
+    if ( mSettings->mOutputDataFileName != NULL )
+	    if ( (mSettings->Output_file = \
+                fopen (mSettings->mOutputDataFileName, "ab")) == NULL )
+                fprintf( stderr, "Unable to open the outfile stream\n");
+    
     // open listening socket 
-    Listen( ); 
+    if ( mSettings->mThreadMode == kMode_RDMA_Listener ) {
+	mCb = new rdma_cb;
+	Settings_Initialize_Cb( mCb );
+	rdma_init( mCb );
+
+//	Setting_Copy_Ts2Cb( mSettings, mCb );
+
+	{
+	// addr
+/*	if ( mSettings->mThreadMode == kMode_RDMA_Listener)
+		memcpy( &mCb->sin, &mSettings->local, sizeof(iperf_sockaddr));
+	else if ( mSettings->mThreadMode == kMode_RDMA_Client)
+		memcpy( &mCb->sin, &mSettings->peer, sizeof(iperf_sockaddr));
+*/
+	// port
+	mCb->port = mSettings->mPort;
+	DPRINTF(("listening port is %d\n", mCb->port));
+	
+	mCb->server = 1;
+	
+	mCb->size = mSettings->mBufLen;
+	DPRINTF(("Listener buffer size is %d\n", mCb->size));
+	
+	mCb->outputfile = mSettings->Output_file;
+	}
+    	ListenRDMA( );
+    }
+    else
+        Listen( );
+
     ReportSettings( inSettings );
 
 } // end Listener 
@@ -159,6 +195,7 @@ void Listener::Run( void ) {
         do {
             // Get a new socket
             Accept( server );
+
             if ( server->mSock == INVALID_SOCKET ) {
                 break;
             }
@@ -261,7 +298,7 @@ void Listener::Run( void ) {
             } else
 #endif
             thread_start( server );
-    
+
             // create a new socket
             if ( UDP ) {
                 mSettings->mSock = -1; 
@@ -279,6 +316,120 @@ void Listener::Run( void ) {
         Settings_Destroy( server );
     }
 } // end Run 
+
+void Listener::RunRDMA( void ) {
+
+        bool client = false, UDP = isUDP( mSettings ), mCount = (mSettings->mThreads != 0);
+        thread_Settings *tempSettings = NULL;
+        rdma_cb *tepmCb = NULL;
+        Iperf_ListEntry *exist, *listtemp;
+        client_hdr* hdr = ( UDP ? (client_hdr*) (((UDP_datagram*)mBuf) + 1) : 
+                                  (client_hdr*) mBuf);
+        
+        if ( mSettings->mHost != NULL ) {
+            client = true;
+            SockAddr_remoteAddr( mSettings );
+        }
+        Settings_Copy( mSettings, &server );
+        server->mThreadMode = kMode_RDMA_Server;
+        server->child_cm_id = mCb->child_cm_id;
+        DPRINTF(("RunRDMA: mCb->child_cm_id %p\n", mCb->child_cm_id));
+    
+        // Accept each packet, 
+        // If there is no existing client, then start  
+        // a new thread to service the new client 
+        // The listener runs in a single thread 
+        // Thread per client model is followed 
+        do {
+            // Just wait, not accept
+            AcceptRDMA( server );
+
+		DPRINTF(("start a new server\n"));
+		DPRINTF(("RunRDMA: mCb->child_cm_id %p\n", mCb->child_cm_id));
+		
+//		server->child_cm_id = mCb->child_cm_id;
+		server->child_cm_id->context = server;
+		
+		memcpy(&server->local, \
+			rdma_get_local_addr(server->child_cm_id), \
+			sizeof(iperf_sockaddr)) ;
+		memcpy(&server->peer, \
+			rdma_get_peer_addr(server->child_cm_id), \
+			sizeof(iperf_sockaddr)) ;
+		
+		DDP_HEX("local addr:", &server->local, sizeof(iperf_sockaddr));
+		DDP_HEX("peer addr:", &server->peer, sizeof(iperf_sockaddr));
+		
+			
+            // Create an entry for the connection list
+            listtemp = new Iperf_ListEntry;
+            memcpy(listtemp, &server->peer, sizeof(iperf_sockaddr));
+            listtemp->next = NULL;
+
+            // See if we need to do summing
+            Mutex_Lock( &clients_mutex );
+            exist = Iperf_hostpresent( &server->peer, clients); 
+    
+            if ( exist != NULL ) {
+                // Copy group ID
+                listtemp->holder = exist->holder;
+                server->multihdr = exist->holder;
+            } else {
+                server->mThreads = 0;
+                Mutex_Lock( &groupCond );
+                groupID--;
+                listtemp->holder = InitMulti( server, groupID );
+                server->multihdr = listtemp->holder;
+                Mutex_Unlock( &groupCond );
+            }
+    
+            // Store entry in connection list
+            Iperf_pushback( listtemp, &clients ); 
+            Mutex_Unlock( &clients_mutex ); 
+/*
+            tempSettings = NULL;
+            if ( !isCompat( mSettings ) && !isMulticast( mSettings ) ) {
+                if ( !UDP ) {
+                    // TCP does not have the info yet
+                    if ( recv( server->mSock, (char*)hdr, sizeof(client_hdr), 0) > 0 ) {
+                        Settings_GenerateClientSettings( server, &tempSettings, 
+                                                          hdr );
+                    }
+                } else {
+                    Settings_GenerateClientSettings( server, &tempSettings, 
+                                                      hdr );
+                }
+            }
+    
+    
+            if ( tempSettings != NULL ) {
+                client_init( tempSettings );
+                if ( tempSettings->mMode == kTest_DualTest ) {
+#ifdef HAVE_THREAD
+                    server->runNow =  tempSettings;
+#else
+                    server->runNext = tempSettings;
+#endif
+                } else {
+                    server->runNext =  tempSettings;
+                }
+            }
+*/
+		
+            thread_start( server );
+    
+            // Prep for next connection
+            if ( !isSingleClient( mSettings ) ) {
+                mClients--;
+                DPRINTF(("mclient %d\n", mClients));
+            }
+            Settings_Copy( mSettings, &server );
+            server->mThreadMode = kMode_RDMA_Server;
+        } while ( !sInterupted && (!mCount || ( mCount && mClients > 0 )) );
+    
+        Settings_Destroy( server );
+
+} // end RunRDMA
 
 /* -------------------------------------------------------------------
  * Setup a socket listening on a port.
@@ -349,6 +500,78 @@ void Listener::Listen( ) {
     }
 #endif
 } // end Listen
+
+/* -------------------------------------------------------------------
+ * Setup a socket listening on a port.
+ * For TCP, this calls bind() and listen().
+ * For UDP, this just calls bind().
+ * If inLocalhost is not null, bind to that address rather than the
+ * wildcard server address, specifying what incoming interface to
+ * accept connections on.
+ * ------------------------------------------------------------------- */
+void Listener::ListenRDMA( ) {
+    int rc;
+	struct rdma_cb *cb;
+	DPRINTF(("in ListenRDMA\n"));
+	
+	SockAddr_localAddr( mSettings );
+	
+	if (mCb->sin.ss_family == AF_INET)
+		((struct sockaddr_in *) &mCb->sin)->sin_port = htons(mCb->port);
+	else
+		((struct sockaddr_in6 *) &mCb->sin)->sin6_port = htons(mCb->port);
+	
+	DPRINTF(("before rdma_bind_addr\n"));
+//	rc = rdma_bind_addr(mCb->cm_id, (struct sockaddr *) &mCb->sin);
+	rc = rdma_bind_addr(mCb->cm_id, (struct sockaddr *) &mSettings->local);
+	if (rc) {
+		perror("rdma_bind_addr");
+		return;
+	}
+	DEBUG_LOG("rdma_bind_addr successful\n");
+	DPRINTF(("rdma_bind_addr successful\n"));
+
+	DEBUG_LOG("rdma_listen\n");
+	DPRINTF(("before rdma_listen\n"));
+	rc = rdma_listen(mCb->cm_id, RLISTENBACKLOG);
+	if (rc) {
+		perror("rdma_listen");
+		return;
+	}
+	DPRINTF(("rdma_listen successful\n"));
+	
+/*	sem_wait(&mCb->sem);
+	if (mCb->state != CONNECT_REQUEST) {
+		fprintf(stderr, "wait for CONNECT_REQUEST state %d\n",
+			mCb->state);
+		return;
+	}
+
+	rc = iperf_setup_qp(mCb, mCb->child_cm_id);
+	if (rc) {
+		fprintf(stderr, "setup_qp failed: %d\n", ret);
+		return;
+	}
+
+	rc = iperf_setup_buffers(mCb);
+	if (rc) {
+		fprintf(stderr, "rping_setup_buffers failed: %d\n", ret);
+		goto err1;
+	}
+
+	rc = ibv_post_recv(mCb->qp, &mCb->rq_wr, &bad_wr);
+	if (rc) {
+		fprintf(stderr, "ibv_post_recv failed: %d\n", ret);
+		goto err2;
+	}
+
+	pthread_create(&mCb->cqthread, NULL, cq_thread, mCb);
+err2:
+	iperf_free_buffers(cb);
+err1:
+	iperf_free_qp(cb);
+*/
+} // end ListenRDMA
 
 /* -------------------------------------------------------------------
  * Joins the multicast group, with the default interface.
@@ -462,6 +685,58 @@ void Listener::Accept( thread_Settings *server ) {
     getsockname( server->mSock, (sockaddr*) &server->local, 
                  &server->size_local );
 } // end Accept
+
+void Listener::AcceptRDMA( thread_Settings *server ) {
+//	struct rdma_conn_param conn_param;
+	int ret;
+	struct wcm_id *item;
+//	rdma_cb *cb;
+	
+	DEBUG_LOG("rdma accepting client connection request\n");
+	
+	TAILQ_LOCK(&acceptedTqh);
+	if ( TAILQ_EMPTY(&acceptedTqh) )
+		if ( TAILQ_WAIT(&acceptedTqh) != 0)
+			fprintf(stderr, "TAILQ_WAIT acceptedTqh\n");
+	
+	item = TAILQ_FIRST(&acceptedTqh);
+	server->child_cm_id = item->child_cm_id;
+	TAILQ_REMOVE(&acceptedTqh, item, entries);
+	
+	TAILQ_UNLOCK(&acceptedTqh);
+	
+	free(item);
+
+//	sem_wait(&mCb->sem); wait here
+	if (mCb->state != CONNECT_REQUEST) {
+		fprintf(stderr, "wait for CONNECT_REQUEST state %d\n",
+			mCb->state);
+		return;
+	}
+	
+	server->mSock = ++ PseudoSock;
+/*
+	Rdma_Settings_Copy(mCb, &cb);
+//	pthread_create(&cb->persistent_server_thread, NULL, \
+//		iperf_persistent_server_thread, cb);
+
+	memset(&conn_param, 0, sizeof conn_param);
+	conn_param.responder_resources = 1;
+	conn_param.initiator_depth = 1;
+	
+	ret = rdma_accept(mCb->child_cm_id, &conn_param);
+	if (ret) {
+		perror("rdma_accept");
+		return;
+	}
+	
+	// here may be block the listener
+	sem_wait(&mCb->sem);
+	if (mCb->state == ERROR) {
+		fprintf(stderr, "wait for CONNECTED state %d\n", cb->state);
+		return;
+	} */
+} // end AcceptRDMA
 
 void Listener::UDPSingleServer( ) {
     

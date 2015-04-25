@@ -86,6 +86,8 @@ Client/Server:\n\
   -w, --window    #[KM]    TCP window size (socket buffer size)\n\
   -B, --bind      <host>   bind to <host>, an interface or multicast address\n\
   -C, --compatibility      for use with older versions does not sent extra msgs\n\
+  -G, --rdma_style[ar/aw/pr/pw]  RDMA  with active/passive read/write mode \n\
+  -H, --rdma               RDMA bw test \n\
   -M, --mss       #        set TCP maximum segment size (MTU - 40 bytes)\n\
   -N, --nodelay            set TCP no delay, disabling Nagle's Algorithm\n\
   -V, --IPv6Version        Set the domain to IPv6\n\
@@ -154,6 +156,12 @@ const char server_port[] =
 
 const char client_port[] =
 "Client connecting to %s, %s port %d\n";
+
+const char rdma_server_port[] =
+"RDMA Server listening on %s port %d\n";
+
+const char rdma_client_port[] =
+"RDMA Client connecting to %s, %s port %d\n";
 
 const char bind_address[] =
 "Binding to local address %s\n";
@@ -329,6 +337,9 @@ const char warn_invalid_report_style[] =
 
 const char warn_invalid_report[] =
 "WARNING: unknown reporting type \"%c\", ignored\n valid options are:\n\t exclude: C(connection) D(data) M(multicast) S(settings) V(server) report\n\n";
+
+const char warn_invalid_rdma_style[] =
+"WARNING: unknown rdma type\n\n";
 
 #ifdef __cplusplus
 } /* end extern "C" */

@@ -75,7 +75,10 @@ typedef enum ThreadMode {
     kMode_Server,
     kMode_Client,
     kMode_Reporter,
-    kMode_Listener
+    kMode_Listener,
+    kMode_RDMA_Server,
+    kMode_RDMA_Client,
+    kMode_RDMA_Listener
 } ThreadMode;
 
 // report mode
@@ -91,7 +94,12 @@ typedef enum TestMode {
     kTest_Normal = 0,
     kTest_DualTest,
     kTest_TradeOff,
-    kTest_Unknown
+    kTest_Unknown,
+    kTest_RDMA_ActRead,
+    kTest_RDMA_ActWrte,
+    kTest_RDMA_PasRead,
+    kTest_RDMA_PasWrte,
+//    kTest_RDMA_RdWr
 } TestMode;
 
 #include "Reporter.h"
@@ -112,7 +120,9 @@ typedef struct thread_Settings {
     char*  mHost;                   // -c
     char*  mLocalhost;              // -B
     char*  mOutputFileName;         // -o
+    char*  mOutputDataFileName;     // -O
     FILE*  Extractor_file;
+    FILE*  Output_file;
     ReportHeader*  reporthdr;
     MultiHeader*   multihdr;
     struct thread_Settings *runNow;
@@ -171,6 +181,7 @@ typedef struct thread_Settings {
     Socklen_t size_local;
     nthread_t mTID;
     char* mCongestion;
+    struct rdma_cm_id *child_cm_id;	// for RDMA server's child
 #if defined( HAVE_WIN32_THREAD )
     HANDLE mHandle;
 #endif
@@ -389,8 +400,17 @@ typedef struct server_hdr {
     // set to defaults
     void Settings_Initialize( thread_Settings* main );
 
+    // set rdma control block to defaults
+    void Settings_Initialize_Cb( rdma_cb* main_cb );
+
     // copy structure
     void Settings_Copy( thread_Settings* from, thread_Settings** into );
+
+    // copy rdma structure
+    void Rdma_Settings_Copy( rdma_cb* from, rdma_cb** into );
+
+    // copy thread_Settings to rdma_cb
+    // void Setting_Copy_Ts2Cb( thread_Setting* from, rdma_cb* into );
 
     // free associated memory
     void Settings_Destroy( thread_Settings *mSettings );

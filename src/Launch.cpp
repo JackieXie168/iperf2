@@ -141,6 +141,10 @@ void client_init( thread_Settings *clients ) {
     Mutex_Lock( &groupCond );
     groupID--;
     clients->multihdr = InitMulti( clients, groupID );
+    if ( clients->multihdr != NULL ) {
+	DPRINTF(("multihdr groupID is %d, threads %d\n", \
+		clients->multihdr->groupID, clients->multihdr->threads));
+    }
     Mutex_Unlock( &groupCond );
 
 #ifdef HAVE_THREAD
@@ -169,3 +173,64 @@ void client_init( thread_Settings *clients ) {
 #endif
 }
 
+
+// rdma implementation
+
+/*
+ * listener_spawn is responsible for creating a Listener class
+ * and launching the listener. It is provided as a means for
+ * the C thread subsystem to launch the listener C++ object.
+ */
+void rdma_listener_spawn( thread_Settings *thread ) {
+    Listener *theListener = NULL;
+
+    // start up a listener
+    DPRINTF(("before new Listener\n"));
+    theListener = new Listener( thread );
+    DPRINTF(("after new Listener\n"));
+
+    // Start listening
+    DPRINTF(("before RunRDMA\n"));
+    theListener->RunRDMA();
+    DPRINTF(("after RunRDMA\n"));
+    DELETE_PTR( theListener );
+}
+
+/*
+ * server_spawn is responsible for creating a Server class
+ * and launching the server. It is provided as a means for
+ * the C thread subsystem to launch the server C++ object.
+ */
+void rdma_server_spawn( thread_Settings *thread) {
+    Server *theServer = NULL;
+
+    // Start up the server
+    DPRINTF(("before new Server\n"));
+    theServer = new Server( thread );
+    DPRINTF(("new Server success\n"));
+    
+    // Run the test
+    DPRINTF(("before Server RunRDMA\n"));
+    theServer->RunRDMA();
+    DPRINTF(("Server RunRDMA success\n"));
+    DELETE_PTR( theServer);
+}
+
+/*
+ * client_spawn is responsible for creating a Client class
+ * and launching the client. It is provided as a means for
+ * the C thread subsystem to launch the client C++ object.
+ */
+void rdma_client_spawn( thread_Settings *thread ) {
+    Client *theClient = NULL;
+
+    //start up the client
+    theClient = new Client( thread );
+
+    // Let the server know about our settings
+    // theClient->InitiateServer();
+
+    // Run the test
+    theClient->RunRDMA();
+    DELETE_PTR( theClient );
+}

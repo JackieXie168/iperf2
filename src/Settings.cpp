@@ -109,10 +109,13 @@ const struct option long_options[] =
 {"compatibility",    no_argument, NULL, 'C'},
 {"daemon",           no_argument, NULL, 'D'},
 {"file_input", required_argument, NULL, 'F'},
+{"rdma_style", required_argument, NULL, 'G'},
+{"rdma",             no_argument, NULL, 'H'},
 {"stdin_input",      no_argument, NULL, 'I'},
 {"mss",        required_argument, NULL, 'M'},
 {"nodelay",          no_argument, NULL, 'N'},
 {"listenport", required_argument, NULL, 'L'},
+{"file_output", required_argument, NULL, 'O'},
 {"parallel",   required_argument, NULL, 'P'},
 {"remove",           no_argument, NULL, 'R'},
 {"tos",        required_argument, NULL, 'S'},
@@ -153,10 +156,12 @@ const struct option env_options[] =
 {"IPERF_COMPAT",           no_argument, NULL, 'C'},
 {"IPERF_DAEMON",           no_argument, NULL, 'D'},
 {"IPERF_FILE_INPUT", required_argument, NULL, 'F'},
+{"IPERF_USE_RDMA",         no_argument, NULL, 'H'},
 {"IPERF_STDIN_INPUT",      no_argument, NULL, 'I'},
 {"IPERF_MSS",        required_argument, NULL, 'M'},
 {"IPERF_NODELAY",          no_argument, NULL, 'N'},
 {"IPERF_LISTENPORT", required_argument, NULL, 'L'},
+{"IPERF_FILE_OUTPUT", required_argument, NULL, 'O'},
 {"IPERF_PARALLEL",   required_argument, NULL, 'P'},
 {"IPERF_TOS",        required_argument, NULL, 'S'},
 {"IPERF_TTL",        required_argument, NULL, 'T'},
@@ -169,7 +174,7 @@ const struct option env_options[] =
 
 #define SHORT_OPTIONS()
 
-const char short_options[] = "1b:c:df:hi:l:mn:o:p:rst:uvw:x:y:B:CDF:IL:M:NP:RS:T:UVWZ:";
+const char short_options[] = "1b:c:df:hi:l:mn:o:p:rst:uvw:x:y:B:CDF:G:HIL:M:NO:P:RS:T:UVWZ:";
 
 /* -------------------------------------------------------------------
  * defaults
@@ -234,6 +239,18 @@ void Settings_Initialize( thread_Settings *main ) {
 
 } // end Settings
 
+void Settings_Initialize_Cb( rdma_cb* main_cb )
+{
+	memset(main_cb, 0, sizeof(*main_cb));
+	main_cb->server = -1;
+	main_cb->state = IDLE;
+	main_cb->size = 64;
+	main_cb->sin.ss_family = PF_INET;
+	main_cb->port = htons(8402);
+	main_cb->outputfile = NULL;
+	sem_init(&main_cb->sem, 0, 0);
+}
+
 void Settings_Copy( thread_Settings *from, thread_Settings **into ) {
     *into = new thread_Settings;
     memcpy( *into, from, sizeof(thread_Settings) );
@@ -258,6 +275,29 @@ void Settings_Copy( thread_Settings *from, thread_Settings **into ) {
     (*into)->runNext = NULL;
     (*into)->runNow = NULL;
 }
+
+void Rdma_Settings_Copy( rdma_cb* from, rdma_cb** into )
+{
+	DPRINTF(("1\n"));
+	*into = new rdma_cb;
+	DPRINTF(("2\n"));
+	memcpy( *into, from, sizeof(rdma_cb) );
+	DPRINTF(("3\n"));
+	(*into)->child_cm_id->context = *into;
+}
+/*
+void Setting_Copy_Ts2Cb( thread_Setting* from, rdma_cb* into)
+{
+	// addr
+	if ( from->mThreadMode == kMode_RDMA_Listener)
+		memcpy( &into->sin, &from->local, sizeof(iperf_sockaddr));
+	else if ( from->mThreadMode == kMode_RDMA_Client)
+		memcpy( &into->sin, &from->peer, sizeof(iperf_sockaddr));
+	
+	// port
+	into->port = htons(from->mPort);
+	
+}*/
 
 /* -------------------------------------------------------------------
  * Delete memory: Does not clean up open file pointers or ptr_parents
@@ -565,7 +605,9 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
             break;
 
         case 'F' : // Get the input for the data stream from a file
-            if ( mExtSettings->mThreadMode != kMode_Client ) {
+            if ( (mExtSettings->mThreadMode != kMode_Client) 
+	    	&& (mExtSettings->mThreadMode != kMode_RDMA_Client)
+		&& (mExtSettings->mThreadMode != kMode_RDMA_Listener) ) {
                 fprintf( stderr, warn_invalid_server_option, option );
                 break;
             }
@@ -574,6 +616,35 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
             mExtSettings->mFileName = new char[strlen(optarg)+1];
             strcpy( mExtSettings->mFileName, optarg);
             break;
+
+        case 'G' : // Get the rdma client transfer style
+            if ( mExtSettings->mThreadMode == kMode_RDMA_Client ) {
+                // Settings_GetUpperCaseArg(optarg,outarg);
+	    if ( strcmp(optarg, "ac") == 0 )
+	    	mExtSettings->mMode = kTest_RDMA_ActRead;
+	    else if ( strcmp(optarg, "aw") == 0 )
+	        mExtSettings->mMode = kTest_RDMA_ActWrte;
+	    else if ( strcmp(optarg, "pr") == 0 )
+	        mExtSettings->mMode = kTest_RDMA_PasRead;
+	    else if ( strcmp(optarg, "pw") == 0 )
+	        mExtSettings->mMode = kTest_RDMA_PasWrte;
+	    else
+	        fprintf( stderr, "unrecognized rdma transfer style\n" );
+	    
+	    DPRINTF(("transfer style %s\n", optarg));
+            }
+
+            break;
+
+        case 'H': // Run as RDMA style
+	    if ( mExtSettings->mThreadMode == kMode_Listener )
+		mExtSettings->mThreadMode = kMode_RDMA_Listener;
+	    else if ( mExtSettings->mThreadMode == kMode_Client )
+		mExtSettings->mThreadMode = kMode_RDMA_Client;
+	    else
+		fprintf( stderr, warn_invalid_report_style );
+
+	    break;
 
         case 'I' : // Set the stdin as the input source
             if ( mExtSettings->mThreadMode != kMode_Client ) {
@@ -606,6 +677,11 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
             setNoDelay( mExtSettings );
             break;
 
+	case 'O' : // Get the output for the data stream to a file
+            mExtSettings->mOutputDataFileName = new char[strlen(optarg)+1];
+            strcpy( mExtSettings->mOutputDataFileName, optarg);
+            break;
+
         case 'P': // number of client threads
 #ifdef HAVE_THREAD
             mExtSettings->mThreads = atoi( optarg );
@@ -620,7 +696,7 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
 
         case 'R':
             setRemoveService( mExtSettings );
-            break;
+	    break;
 
         case 'S': // IP type-of-service
             // TODO use a function that understands base-2
@@ -721,6 +797,7 @@ void Settings_GenerateListenerSettings( thread_Settings *client, thread_Settings
         (*listener)->mHost       = NULL;
         (*listener)->mLocalhost  = NULL;
         (*listener)->mOutputFileName = NULL;
+        (*listener)->mOutputDataFileName = NULL;
         (*listener)->mMode       = kTest_Normal;
         (*listener)->mThreadMode = kMode_Listener;
         if ( client->mHost != NULL ) {

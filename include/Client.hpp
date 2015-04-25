@@ -72,6 +72,9 @@ public:
     // TCP specific version of above
     void RunTCP( void );
 
+    // RDMA specific version of above;
+    void RunRDMA( void );
+
     void InitiateServer();
 
     // UDP / TCP
@@ -81,9 +84,16 @@ public:
 
     // client connect
     void Connect( );
+    
+    // client connect rdma
+    void ConnectRDMA( );
+    
+    // get control block address
+    // void GetRdmaCB( struct rdma_cb **cb );
 
 protected:
     thread_Settings *mSettings;
+    rdma_cb *mCb;
     char* mBuf;
     Timestamp mEndTime;
     Timestamp lastPacketTime;

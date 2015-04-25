@@ -70,6 +70,8 @@ public:
 
     // accepts connection and receives data
     void Run( void );
+    
+    void RunRDMA( void );
 
     void write_UDP_AckFIN( );
 
@@ -77,6 +79,7 @@ public:
 
 private:
     thread_Settings *mSettings;
+    rdma_cb *mCb;
     char* mBuf;
     Timestamp mEndTime;
 

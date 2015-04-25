@@ -60,6 +60,7 @@
 #include "delay.hpp"
 #include "util.h"
 #include "Locale.h"
+#include "rdma.h"
 
 /* -------------------------------------------------------------------
  * Store server hostname, optionally local hostname, and socket info.
@@ -83,8 +84,56 @@ Client::Client( thread_Settings *inSettings ) {
         }
     }
 
-    // connect
-    Connect( );
+    // connect TCP/UDP
+    if ( mSettings->mThreadMode == kMode_Client )
+    	Connect( );
+    else if ( mSettings->mThreadMode == kMode_RDMA_Client ) {// connect RDMA
+    	mCb = new rdma_cb;
+	Settings_Initialize_Cb( mCb );
+	mCb->size = mSettings->mBufLen;
+	DPRINTF(("client buffer size is %d\n", mCb->size));
+	rdma_init( mCb );
+
+	{
+	// addr
+/*	if ( mSettings->mThreadMode == kMode_RDMA_Listener)
+		memcpy( &mCb->sin, &mSettings->local, sizeof(iperf_sockaddr));
+	else if ( mSettings->mThreadMode == kMode_RDMA_Client)
+		memcpy( &mCb->sin, &mSettings->peer, sizeof(iperf_sockaddr));
+*/
+	// port
+	mCb->port = mSettings->mPort;
+	DPRINTF(("connecting port is %d\n", mCb->port));
+	
+	mCb->server = 0;
+	
+	mCb->size = mSettings->mBufLen;
+	DPRINTF(("client buffer size is %d\n", mCb->size));
+	
+	switch ( mSettings->mMode ) {
+	case kTest_RDMA_ActRead:
+	    mCb->trans_mode = kRdmaTrans_ActRead;
+	    break;
+	case kTest_RDMA_ActWrte:
+	    mCb->trans_mode = kRdmaTrans_ActWrte;
+	    break;
+	case kTest_RDMA_PasRead:
+	    mCb->trans_mode = kRdmaTrans_PasRead;
+	    break;
+	case kTest_RDMA_PasWrte:
+	    mCb->trans_mode = kRdmaTrans_PasWrte;
+	    break;
+	default:
+	    fprintf(stderr, "unrecognize transfer mode %d\n", mSettings->mMode);
+	    break;
+	} // end switch
+	
+	
+	}
+	ConnectRDMA( );
+    }
+    else
+    	fprintf(stderr, "err thread mode: %d\n", mSettings->mThreadMode);
 
     if ( isReport( inSettings ) ) {
         ReportSettings( inSettings );
@@ -194,6 +243,157 @@ void Client::RunTCP( void ) {
     DELETE_PTR( reportstruct );
     EndReport( mSettings->reporthdr );
 }
+
+
+void Client::RunRDMA( void ) {
+    unsigned long currLen = 0; 
+    struct itimerval it;
+    max_size_t totLen = 0;
+
+    int err;
+
+    char* readAt = mBuf;
+
+    struct ibv_send_wr* bad_wr;
+    
+    // Indicates if the stream is readable 
+    bool canRead = true, mMode_Time = isModeTime( mSettings ); 
+
+    ReportStruct *reportstruct = NULL;
+
+    // InitReport handles Barrier for multiple Streams
+    mSettings->reporthdr = InitReport( mSettings );
+    reportstruct = new ReportStruct;
+    reportstruct->packetID = 0;
+
+    lastPacketTime.setnow();
+    if ( mMode_Time ) {
+	memset (&it, 0, sizeof (it));
+	it.it_value.tv_sec = (int) (mSettings->mAmount / 100.0);
+	it.it_value.tv_usec = (int) 10000 * (mSettings->mAmount -
+	    it.it_value.tv_sec * 100.0);
+	err = setitimer( ITIMER_REAL, &it, NULL );
+	if ( err != 0 ) {
+	    perror("setitimer");
+	    exit(1);
+	}
+    }
+
+    do {
+        // Read the next data block from 
+        // the file if it's file input 
+        if ( isFileInput( mSettings ) 
+		&& ( (mCb->trans_mode == kRdmaTrans_ActWrte) ||
+		(mCb->trans_mode == kRdmaTrans_PasRead) ) ) {
+            // Extractor_getNextDataBlock( readAt, mSettings );
+            mCb->size = Extractor_getNextDataBlock( mCb->start_buf, mSettings );
+            canRead = Extractor_canRead( mSettings ) != 0;
+        } else
+            canRead = true;
+
+        // perform RDMA read or write
+//        currLen = write( mSettings->mSock, mBuf, mSettings->mBufLen );
+	switch ( mCb->trans_mode ) {
+	case kRdmaTrans_ActRead:
+		break;
+	case kRdmaTrans_ActWrte:
+		break;
+	case kRdmaTrans_PasRead:
+		currLen = cli_pas_rdma_rd( mCb );
+		break;
+	case kRdmaTrans_PasWrte:
+		currLen = cli_pas_rdma_wr( mCb );
+		break;
+	default:
+		fprintf(stderr, "unrecognized transfer mode %d\n", \
+			mCb->trans_mode);
+		break;
+	}
+	
+/*	DPRINTF(("client start transfer data via rdma\n"));
+	mCb->state = RDMA_READ_ADV;
+	
+	iperf_format_send(mCb, mCb->start_buf, mCb->start_mr);
+
+	err = ibv_post_send(mCb->qp, &mCb->sq_wr, &bad_wr);
+	if (err) {
+		fprintf(stderr, "post send error %d\n", err);
+		break;
+	}
+	DPRINTF(("client ibv_post_send success\n"));
+
+	/* Wait for server to ACK read complete */
+/*	DPRINTF(("client RunRDMA cb @ %x\n", (unsigned long)mCb));
+	DPRINTF(("client RunRDMA sem_wait @ %x\n", (unsigned long)&mCb->sem));
+	DPRINTF(("wait server to say go ahead\n"));
+	sem_wait(&mCb->sem);
+	if (mCb->state != RDMA_WRITE_ADV) {
+		fprintf(stderr, "wait for RDMA_WRITE_ADV state %d\n",
+			mCb->state);
+		err = -1;
+		break;
+	}
+	DPRINTF(("client Wait for server to ACK read complete success\n"));
+	
+
+	iperf_format_send(mCb, mCb->rdma_buf, mCb->rdma_mr);
+	err = ibv_post_send(mCb->qp, &mCb->sq_wr, &bad_wr);
+	if (err) {
+		fprintf(stderr, "post send error %d\n", err);
+		break;
+	}
+
+	/* Wait for the server to say the RDMA Write is complete.
+	sem_wait(&mCb->sem);
+	if (mCb->state != RDMA_WRITE_COMPLETE) {
+		fprintf(stderr, "wait for RDMA_WRITE_COMPLETE state %d\n",
+			mCb->state);
+		err = -1;
+		break;
+	} */
+	
+//	currLen = 2 * ( mCb->size + sizeof( iperf_rdma_info ) );
+//	currLen = 2 * mCb->size;
+	// iperf_rdma_info is transfer via rdma recv/send
+	
+        if ( currLen < 0 ) {
+            WARN_errno( currLen < 0, "write2" ); 
+            break;
+        }
+	totLen += currLen;
+	
+	if( mSettings->mInterval > 0 ) {
+    	    gettimeofday( &(reportstruct->packetTime), NULL );
+            reportstruct->packetLen = currLen;
+            ReportPacket( mSettings->reporthdr, reportstruct );
+        }
+
+        if ( !mMode_Time ) {
+            /* mAmount may be unsigned, so don't let it underflow! */
+            if( mSettings->mAmount >= currLen ) {
+                mSettings->mAmount -= currLen;
+            } else {
+                mSettings->mAmount = 0;
+            }
+        }
+
+    } while ( ! (sInterupted  || 
+                   (!mMode_Time  &&  0 >= mSettings->mAmount)) && canRead ); 
+
+    // stop timing
+    gettimeofday( &(reportstruct->packetTime), NULL );
+
+    // if we're not doing interval reporting, report the entire transfer as one big packet
+    if(0.0 == mSettings->mInterval) {
+        reportstruct->packetLen = totLen;
+        ReportPacket( mSettings->reporthdr, reportstruct );
+    }
+    CloseReport( mSettings->reporthdr, reportstruct );
+
+    DELETE_PTR( reportstruct );
+    EndReport( mSettings->reporthdr );
+}
+
 
 /* ------------------------------------------------------------------- 
  * Send data using the connected UDP/TCP socket, 
@@ -420,6 +620,120 @@ void Client::Connect( ) {
     getpeername( mSettings->mSock, (sockaddr*) &mSettings->peer,
                  &mSettings->size_peer );
 } // end Connect
+
+
+/* -------------------------------------------------------------------
+ * Setup a socket connected to a server use librdmacm.
+ * If inLocalhost is not null, bind to that address, specifying
+ * which outgoing interface to use.
+ * ------------------------------------------------------------------- */
+
+void Client::ConnectRDMA( ) {
+    int rc;
+    struct ibv_recv_wr* bad_wr;
+    SockAddr_remoteAddr( mSettings );
+
+    assert( mSettings->inHostname != NULL );
+
+    // create an internet socket
+    int type = ( isUDP( mSettings )  ?  SOCK_DGRAM : SOCK_STREAM);
+
+    int domain = (SockAddr_isIPv6( &mSettings->peer ) ? 
+#ifdef HAVE_IPV6
+                  AF_INET6
+#else
+                  AF_INET
+#endif
+                  : AF_INET);
+/*
+    mSettings->mSock = socket( domain, type, 0 );
+    WARN_errno( mSettings->mSock == INVALID_SOCKET, "socket" );
+
+    SetSocketOptions( mSettings );
+
+
+    SockAddr_localAddr( mSettings );
+    if ( mSettings->mLocalhost != NULL ) {
+        // bind socket to local address
+        rc = bind( mSettings->mSock, (sockaddr*) &mSettings->local, 
+                   SockAddr_get_sizeof_sockaddr( &mSettings->local ) );
+        WARN_errno( rc == SOCKET_ERROR, "bind" );
+    }
+
+    // connect socket
+    rc = connect( mSettings->mSock, (sockaddr*) &mSettings->peer, 
+                  SockAddr_get_sizeof_sockaddr( &mSettings->peer ));
+    FAIL_errno( rc == SOCKET_ERROR, "connect", mSettings );
+    
+    getsockname( mSettings->mSock, (sockaddr*) &mSettings->local, 
+                 &mSettings->size_local );
+    getpeername( mSettings->mSock, (sockaddr*) &mSettings->peer,
+                 &mSettings->size_peer );
+*/
+
+	if (domain == AF_INET)
+		((struct sockaddr_in *) &mCb->sin)->sin_port = htons(mCb->port);
+	else
+		((struct sockaddr_in6 *) &mCb->sin)->sin6_port = htons(mCb->port);
+
+	rc = rdma_resolve_addr(mCb->cm_id, NULL, \
+		(struct sockaddr *) &mSettings->peer, 2000);
+	if (rc) {
+		perror("rdma_resolve_addr");
+		return;
+	}
+
+	sem_wait(&mCb->sem);
+	if (mCb->state != ROUTE_RESOLVED) {
+		fprintf(stderr, "waiting for addr/route resolution state %d\n",
+			mCb->state);
+		return;
+	}
+
+	rc = iperf_setup_qp(mCb, mCb->cm_id);
+	if (rc) {
+		fprintf(stderr, "iperf_setup_qp failed: %d\n", rc);
+		return;
+	}
+	
+	rc = iperf_setup_buffers(mCb);
+	if (rc) {
+		fprintf(stderr, "rdma_setup_buffers failed: %d\n", rc);
+		goto err1;
+	}
+	
+	rc = ibv_post_recv(mCb->qp, &mCb->rq_wr, &bad_wr);
+	if (rc) {
+		fprintf(stderr, "ibv_post_recv failed: %d\n", rc);
+		goto err2;
+	}
+
+	pthread_create(&mCb->cqthread, NULL, cq_thread, mCb);
+
+	rc = rdma_connect_client(mCb);
+	if (rc) {
+		fprintf(stderr, "connect error %d\n", rc);
+		goto err2;
+	}
+
+	memcpy(&mSettings->local, rdma_get_local_addr(mCb->cm_id), \
+		sizeof(iperf_sockaddr)) ;
+	memcpy(&mSettings->peer, rdma_get_peer_addr(mCb->cm_id), \
+		sizeof(iperf_sockaddr)) ;
+
+	Mutex_Lock( &PseudoSockCond );
+	mSettings->mSock = ++ PseudoSock;
+	Mutex_Unlock( &PseudoSockCond );
+	
+	return;
+//	rping_test_client(cb);
+//	rdma_disconnect(cb->cm_id);
+err2:
+	iperf_free_buffers(mCb);
+err1:
+	iperf_free_qp(mCb);
+
+} // end ConnectRDMA
 
 /* ------------------------------------------------------------------- 
  * Send a datagram on the socket. The datagram's contents should signify 

@@ -138,6 +138,12 @@
 /** Added for daemonizing the process */
     #include <syslog.h>
 
+/** Added for semaphore */
+    #include <semaphore.h>
+
+/** Added for PRIx64 */
+    #include <inttypes.h>
+
 SPECIAL_OSF1_EXTERN_C_START
     #include <netdb.h>
 SPECIAL_OSF1_EXTERN_C_STOP
@@ -186,6 +192,12 @@ typedef uint64_t max_size_t;
 #include "gettimeofday.h"
 #include "inet_aton.h"
 #include "snprintf.h"
+
+#include "rdma.h"
+
+#include "errors.h"
+
+#include "queue.h"
 
 #ifndef SHUT_RD
     #define SHUT_RD   0

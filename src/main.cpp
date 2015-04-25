@@ -70,6 +70,7 @@
 #include "Listener.hpp"
 #include "List.h"
 #include "util.h"
+#include "rdma.h"
 
 #ifdef WIN32
 #include "service.h"
@@ -97,6 +98,20 @@ extern "C" {
     // serialize modification of the report list
     Condition ReportCond;
     Condition ReportDoneCond;
+    
+    // there is no socket fd in rdmacm and the reporter's transferID
+    // is mSock in mSetting data structure,
+    // so create a new global PseudoSock fd for reporting.
+    // 0 1 2 are STDIN STDOUT STDERR
+    int PseudoSock = 3;
+    // Mutex for PseudoSock (client need, server doesn't)
+    Mutex PseudoSockCond;
+    
+    int rdma_debug = 0;
+    
+    struct acptq acceptedTqh;
+//    TAILQ_HEAD(acpTqh, struct rdma_cm_id *) acceptedTqh;
+
 }
 
 // global variables only accessed within this file
@@ -146,6 +161,8 @@ int main( int argc, char **argv ) {
     Condition_Initialize ( &ReportDoneCond );
     Mutex_Initialize( &groupCond );
     Mutex_Initialize( &clients_mutex );
+    
+    Mutex_Initialize( &PseudoSockCond );
 
     // Initialize the thread subsystem
     thread_init( );
@@ -168,7 +185,9 @@ int main( int argc, char **argv ) {
 
     // Check for either having specified client or server
     if ( ext_gSettings->mThreadMode == kMode_Client 
-         || ext_gSettings->mThreadMode == kMode_Listener ) {
+         || ext_gSettings->mThreadMode == kMode_Listener 
+         || ext_gSettings->mThreadMode == kMode_RDMA_Client
+         || ext_gSettings->mThreadMode == kMode_RDMA_Listener) {
 #ifdef WIN32
         // Start the server as a daemon
         // Daemon mode for non-windows in handled
@@ -189,9 +208,28 @@ int main( int argc, char **argv ) {
         }
 #endif
         // initialize client(s)
-        if ( ext_gSettings->mThreadMode == kMode_Client ) {
-            client_init( ext_gSettings );
+        if ( ext_gSettings->mThreadMode == kMode_Client
+	    || ext_gSettings->mThreadMode == kMode_RDMA_Client) {
+            DPRINTF(("before client_init\n"));
+	    client_init( ext_gSettings );
+	    DPRINTF(("client_init success\n"));
         }
+        
+        // rdma_cb* cb = new rdma_cb;
+        
+        // initialize rdma resources
+        if ( ext_gSettings->mThreadMode == kMode_RDMA_Listener
+	    || ext_gSettings->mThreadMode == kMode_RDMA_Client ) {
+//	    rdma_init( ext_gSettings->cb );
+	    // Allocate the "global" settings
+	    rdma_cb* cb = new rdma_cb;
+	
+	    // Initialize settings to defaults
+	    Settings_Initialize_Cb( cb );
+	    
+	    TAILQ_INIT(&acceptedTqh);
+//	    rdma_init( cb );
+	}
 
 #ifdef HAVE_THREAD
         // start up the reporter and client(s) or listener
