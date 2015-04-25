@@ -83,24 +83,6 @@ Client::Client( thread_Settings *inSettings ) {
         }
     }
 
-    struct mtcp_conf mcfg;
-    int ret = mtcp_init("iperf.conf");
-    if (ret) {
-      fprintf(stderr, "Failed to initialize mtcp.\n");
-      exit(EXIT_FAILURE);
-    }
-    mtcp_getconf(&mcfg);
-    mcfg.max_concurrency = mcfg.max_num_buffers = mSettings->mThreads;
-    mtcp_setconf(&mcfg);
-
-    static int ctid = 0;
-    mSettings->mctx = mtcp_create_context(ctid++);
-
-    if (!mSettings->mctx) {
-      fprintf(stderr, "Failed to create mtcp context!\n");
-      exit(EXIT_FAILURE);
-    }
-
     // connect
     Connect( );
 
@@ -123,7 +105,7 @@ Client::Client( thread_Settings *inSettings ) {
 
 Client::~Client() {
     if ( mSettings->mSock != INVALID_SOCKET ) {
-      int rc = mtcp_close( mSettings->mctx, mSettings->mSock );
+        int rc = close( mSettings->mSock );
         WARN_errno( rc == SOCKET_ERROR, "close" );
         mSettings->mSock = INVALID_SOCKET;
     }
@@ -174,11 +156,7 @@ void Client::RunTCP( void ) {
             canRead = true; 
 
         // perform write 
-        currLen = mtcp_write( mSettings->mctx, mSettings->mSock, mBuf, mSettings->mBufLen ); 
-	// if (currLen != 64)
-	//   printf ("curlen = %d\n", currLen);
-	// if (currLen == -1)
-	//   perror ("len=-1");
+        currLen = write( mSettings->mSock, mBuf, mSettings->mBufLen ); 
         if ( currLen < 0 ) {
             WARN_errno( currLen < 0, "write2" ); 
             break; 
@@ -323,7 +301,7 @@ void Client::Run( void ) {
             canRead = true; 
 
         // perform write 
-        currLen = mtcp_write( mSettings->mctx, mSettings->mSock, mBuf, mSettings->mBufLen ); 
+        currLen = write( mSettings->mSock, mBuf, mSettings->mBufLen ); 
         if ( currLen < 0 && errno != ENOBUFS ) {
             WARN_errno( currLen < 0, "write2" ); 
             break; 
@@ -387,7 +365,7 @@ void Client::InitiateServer() {
         }
         Settings_GenerateClientHdr( mSettings, temp_hdr );
         if ( !isUDP( mSettings ) ) {
-	    currLen = mtcp_write( mSettings->mctx, mSettings->mSock, mBuf, sizeof(client_hdr) );
+            currLen = send( mSettings->mSock, mBuf, sizeof(client_hdr), 0 );
             if ( currLen < 0 ) {
                 WARN_errno( currLen < 0, "write1" );
             }
@@ -418,7 +396,7 @@ void Client::Connect( ) {
 #endif
                   : AF_INET);
 
-    mSettings->mSock = mtcp_socket(mSettings->mctx, AF_INET, type, 0);
+    mSettings->mSock = socket( domain, type, 0 );
     WARN_errno( mSettings->mSock == INVALID_SOCKET, "socket" );
 
     SetSocketOptions( mSettings );
@@ -427,13 +405,13 @@ void Client::Connect( ) {
     SockAddr_localAddr( mSettings );
     if ( mSettings->mLocalhost != NULL ) {
         // bind socket to local address
-        rc = mtcp_bind( mSettings->mctx, mSettings->mSock, (sockaddr*) &mSettings->local, 
+        rc = bind( mSettings->mSock, (sockaddr*) &mSettings->local, 
                    SockAddr_get_sizeof_sockaddr( &mSettings->local ) );
         WARN_errno( rc == SOCKET_ERROR, "bind" );
     }
 
     // connect socket
-    rc = mtcp_connect( mSettings->mctx, mSettings->mSock, (sockaddr*) &mSettings->peer, 
+    rc = connect( mSettings->mSock, (sockaddr*) &mSettings->peer, 
                   SockAddr_get_sizeof_sockaddr( &mSettings->peer ));
     FAIL_errno( rc == SOCKET_ERROR, "connect", mSettings );
 
@@ -441,12 +419,6 @@ void Client::Connect( ) {
                  &mSettings->size_local );
     getpeername( mSettings->mSock, (sockaddr*) &mSettings->peer,
                  &mSettings->size_peer );
-#if 1
-    if (mtcp_setsock_nonblock(mSettings->mctx, mSettings->mSock) < 0) {
-      fprintf (stderr, "%s:%d %s,%s\n", __FILE__, __LINE__,
-		      "socket non-blocking operation failed:", strerror(errno));
-    }
-#endif
 } // end Connect
 
 /* ------------------------------------------------------------------- 
@@ -481,7 +453,7 @@ void Client::write_UDP_FIN( ) {
             continue; 
         } else {
             // socket ready to read 
-	    rc = mtcp_read( mSettings->mctx, mSettings->mSock, mBuf, mSettings->mBufLen ); 
+            rc = read( mSettings->mSock, mBuf, mSettings->mBufLen ); 
             WARN_errno( rc < 0, "read" );
     	    if ( rc < 0 ) {
                 break;
