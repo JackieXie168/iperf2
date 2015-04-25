@@ -84,7 +84,6 @@ public:
 
 protected:
     thread_Settings *mSettings;
-    char* mBuf;
     Timestamp mEndTime;
     Timestamp lastPacketTime;
 

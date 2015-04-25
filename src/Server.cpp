@@ -61,6 +61,8 @@
 #include "Extractor.h"
 #include "Reporter.h"
 #include "Locale.h"
+#include "../../../../include/osv/zcopy.h"
+#include <poll.h>
 
 /* -------------------------------------------------------------------
  * Stores connected socket and socket info.
@@ -69,10 +71,6 @@
 Server::Server( thread_Settings *inSettings ) {
     mSettings = inSettings;
     mBuf = NULL;
-
-    // initialize buffer
-    mBuf = new char[ mSettings->mBufLen ];
-    FAIL_errno( mBuf == NULL, "No memory for buffer\n", mSettings );
 }
 
 /* -------------------------------------------------------------------
@@ -85,7 +83,6 @@ Server::~Server() {
         WARN_errno( rc == SOCKET_ERROR, "close" );
         mSettings->mSock = INVALID_SOCKET;
     }
-    DELETE_ARRAY( mBuf );
 }
 
 void Server::Sig_Int( int inSigno ) {
@@ -99,7 +96,7 @@ void Server::Sig_Int( int inSigno ) {
 void Server::Run( void ) {
     long currLen; 
     max_size_t totLen = 0;
-    struct UDP_datagram* mBuf_UDP  = (struct UDP_datagram*) mBuf; 
+    struct UDP_datagram* mBuf_UDP = NULL;
 
     ReportStruct *reportstruct = NULL;
 
@@ -108,9 +105,25 @@ void Server::Run( void ) {
         reportstruct->packetID = 0;
         mSettings->reporthdr = InitReport( mSettings );
         do {
+            struct zmsghdr zm;
+            struct iovec iovs[10];
+            struct pollfd pfd[1];
+            zm.zm_msg.msg_iov = iovs;
+            zm.zm_msg.msg_iovlen = 10;
+
+            pfd[0].fd = mSettings->mSock;
+            pfd[0].events = POLLIN;
+            int ret = poll(pfd, 1, -1);
+            if (ret < 0) {
+                perror("poll");
+                exit(1);
+            }
+
             // perform read 
-            currLen = recv( mSettings->mSock, mBuf, mSettings->mBufLen, 0 ); 
-        
+            currLen = zcopy_rx(mSettings->mSock, &zm);
+            if (currLen > 0)
+                zcopy_rxgc(&zm);
+       
             if ( isUDP( mSettings ) ) {
                 // read the datagram ID and sentTime out of the buffer 
                 reportstruct->packetID = ntohl( mBuf_UDP->id ); 

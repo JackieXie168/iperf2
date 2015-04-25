@@ -51,6 +51,12 @@
  * sending and receiving data, then closes the socket.
  * ------------------------------------------------------------------- */
 
+#include <list>
+#include <map>
+#include <algorithm>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/epoll.h>
 #include "headers.h"
 #include "Client.hpp"
 #include "Thread.h"
@@ -60,27 +66,24 @@
 #include "delay.hpp"
 #include "util.h"
 #include "Locale.h"
+#include "../../../../include/osv/zcopy.h"
+#include <poll.h>
 
 /* -------------------------------------------------------------------
  * Store server hostname, optionally local hostname, and socket info.
  * ------------------------------------------------------------------- */
+std::list<char *> freeBufs;
+std::map<int, zmsghdr *> usedBufs;
 
 Client::Client( thread_Settings *inSettings ) {
     mSettings = inSettings;
-    mBuf = NULL;
+    for (int i = 0; i < 1024; i++) {
+        char * mBuf = NULL;
 
-    // initialize buffer
-    mBuf = new char[ mSettings->mBufLen ];
-    pattern( mBuf, mSettings->mBufLen );
-    if ( isFileInput( mSettings ) ) {
-        if ( !isSTDIN( mSettings ) )
-            Extractor_Initialize( mSettings->mFileName, mSettings->mBufLen, mSettings );
-        else
-            Extractor_InitializeFile( stdin, mSettings->mBufLen, mSettings );
-
-        if ( !Extractor_canRead( mSettings ) ) {
-            unsetFileInput( mSettings );
-        }
+        // initialize buffer
+        mBuf = new char[ mSettings->mBufLen ];
+        pattern( mBuf, mSettings->mBufLen );
+        freeBufs.push_back(mBuf);
     }
 
     // connect
@@ -109,7 +112,6 @@ Client::~Client() {
         WARN_errno( rc == SOCKET_ERROR, "close" );
         mSettings->mSock = INVALID_SOCKET;
     }
-    DELETE_ARRAY( mBuf );
 } // end ~Client
 
 const double kSecs_to_usecs = 1e6; 
@@ -121,8 +123,6 @@ void Client::RunTCP( void ) {
     max_size_t totLen = 0;
 
     int err;
-
-    char* readAt = mBuf;
 
     // Indicates if the stream is readable 
     bool canRead = true, mMode_Time = isModeTime( mSettings ); 
@@ -146,22 +146,57 @@ void Client::RunTCP( void ) {
 	    exit(1);
 	}
     }
+    int epfd = epoll_create(1024);
+    struct epoll_event evts[1024];
+    if (epfd < 0) {
+        perror("epoll_create");
+        exit(1);
+    }
     do {
         // Read the next data block from 
         // the file if it's file input 
-        if ( isFileInput( mSettings ) ) {
-            Extractor_getNextDataBlock( readAt, mSettings ); 
-            canRead = Extractor_canRead( mSettings ) != 0; 
-        } else
-            canRead = true; 
+        canRead = true; 
+
+        int nfds = epoll_wait(epfd, evts, 1024, 0);
+        if (nfds < 0) {
+            perror("epoll_wait");
+            exit(1);
+        }
+        for (int i = 0; i < nfds; i++) {
+            struct epoll_event &e = evts[i];
+            zmsghdr *zm = usedBufs[e.data.fd];
+            freeBufs.push_back(reinterpret_cast<char *>(zm->zm_msg.msg_iov[0].iov_base));
+            zcopy_txclose(zm);
+        }
 
         // perform write 
-        currLen = write( mSettings->mSock, mBuf, mSettings->mBufLen ); 
+        char *mBuf = freeBufs.front();
+        if (!mBuf) {
+            printf("no free buffers available\n");
+            exit(1);
+        }
+        freeBufs.pop_front();
+
+        struct zmsghdr *zm = new zmsghdr();
+        struct iovec iov[1];
+        iov[0].iov_base = mBuf;
+        iov[0].iov_len = mSettings->mBufLen;
+        zm->zm_msg.msg_iov = iov;
+        zm->zm_msg.msg_iovlen = 1;
+        currLen = zcopy_tx( mSettings->mSock, zm);
         if ( currLen < 0 ) {
             WARN_errno( currLen < 0, "write2" ); 
             break; 
         }
 	totLen += currLen;
+        struct epoll_event evt = {};
+        evt.data.fd = zm->zm_txfd;
+        evt.events = EPOLLIN;
+        if (epoll_ctl(epfd, EPOLL_CTL_ADD, zm->zm_txfd, &evt) < 0) {
+            perror("epoll_ctl");
+            exit(1);
+        }
+        usedBufs[zm->zm_txfd] = zm;
 
 	if(mSettings->mInterval > 0) {
     	    gettimeofday( &(reportstruct->packetTime), NULL );
@@ -202,14 +237,14 @@ void Client::RunTCP( void ) {
  * ------------------------------------------------------------------- */ 
 
 void Client::Run( void ) {
-    struct UDP_datagram* mBuf_UDP = (struct UDP_datagram*) mBuf; 
+    struct UDP_datagram* mBuf_UDP = (struct UDP_datagram*) freeBufs.front(); 
     unsigned long currLen = 0; 
 
     int delay_target = 0; 
     int delay = 0; 
     int adjust = 0; 
 
-    char* readAt = mBuf;
+    char* readAt = freeBufs.front();
 
 #if HAVE_THREAD
     if ( !isUDP( mSettings ) ) {
@@ -301,7 +336,7 @@ void Client::Run( void ) {
             canRead = true; 
 
         // perform write 
-        currLen = write( mSettings->mSock, mBuf, mSettings->mBufLen ); 
+        currLen = write( mSettings->mSock, freeBufs.front(), mSettings->mBufLen ); 
         if ( currLen < 0 && errno != ENOBUFS ) {
             WARN_errno( currLen < 0, "write2" ); 
             break; 
@@ -343,7 +378,7 @@ void Client::Run( void ) {
         mBuf_UDP->tv_usec = htonl( reportstruct->packetTime.tv_usec ); 
 
         if ( isMulticast( mSettings ) ) {
-            write( mSettings->mSock, mBuf, mSettings->mBufLen ); 
+            write( mSettings->mSock, freeBufs.front(), mSettings->mBufLen ); 
         } else {
             write_UDP_FIN( ); 
         }
@@ -358,14 +393,14 @@ void Client::InitiateServer() {
         int currLen;
         client_hdr* temp_hdr;
         if ( isUDP( mSettings ) ) {
-            UDP_datagram *UDPhdr = (UDP_datagram *)mBuf;
+            UDP_datagram *UDPhdr = (UDP_datagram *)freeBufs.front();
             temp_hdr = (client_hdr*)(UDPhdr + 1);
         } else {
-            temp_hdr = (client_hdr*)mBuf;
+            temp_hdr = (client_hdr*)freeBufs.front();
         }
         Settings_GenerateClientHdr( mSettings, temp_hdr );
         if ( !isUDP( mSettings ) ) {
-            currLen = send( mSettings->mSock, mBuf, sizeof(client_hdr), 0 );
+            currLen = send( mSettings->mSock, freeBufs.front(), sizeof(client_hdr), 0 );
             if ( currLen < 0 ) {
                 WARN_errno( currLen < 0, "write1" );
             }
@@ -437,7 +472,7 @@ void Client::write_UDP_FIN( ) {
         count++; 
 
         // write data 
-        write( mSettings->mSock, mBuf, mSettings->mBufLen ); 
+        write( mSettings->mSock, freeBufs.front(), mSettings->mBufLen ); 
 
         // wait until the socket is readable, or our timeout expires 
         FD_ZERO( &readSet ); 
@@ -453,12 +488,12 @@ void Client::write_UDP_FIN( ) {
             continue; 
         } else {
             // socket ready to read 
-            rc = read( mSettings->mSock, mBuf, mSettings->mBufLen ); 
+            rc = read( mSettings->mSock, freeBufs.front(), mSettings->mBufLen ); 
             WARN_errno( rc < 0, "read" );
     	    if ( rc < 0 ) {
                 break;
             } else if ( rc >= (int) (sizeof(UDP_datagram) + sizeof(server_hdr)) ) {
-                ReportServerUDP( mSettings, (server_hdr*) ((UDP_datagram*)mBuf + 1) );
+                ReportServerUDP( mSettings, (server_hdr*) ((UDP_datagram*)freeBufs.front() + 1) );
             }
 
             return; 
