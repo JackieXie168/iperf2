@@ -118,10 +118,16 @@ const int    kBytes_to_Bits = 8;
 void Client::RunTCP( void ) {
     unsigned long currLen = 0; 
     struct itimerval it;
+	struct Timestamp mStartTime, mFinishTime, mPacketTime;
+	struct Timestamp mFlowStartTime, mFlowEndTime;
     max_size_t totLen = 0;
-
+	double tcInterval;
+	int choseFunction = 5;
+	int breakFlag = 0;
+	struct tcFlow flow;
+	
     int err;
-
+	const int noEndInt = 999999;
     char* readAt = mBuf;
 
     // Indicates if the stream is readable 
@@ -135,62 +141,146 @@ void Client::RunTCP( void ) {
     reportstruct->packetID = 0;
 
     lastPacketTime.setnow();
-    if ( mMode_Time ) {
-	memset (&it, 0, sizeof (it));
-	it.it_value.tv_sec = (int) (mSettings->mAmount / 100.0);
-	it.it_value.tv_usec = (int) 10000 * (mSettings->mAmount -
-	    it.it_value.tv_sec * 100.0);
-	err = setitimer( ITIMER_REAL, &it, NULL );
-	if ( err != 0 ) {
-	    perror("setitimer");
-	    exit(1);
-	}
+
+    if ( mMode_Time && !mSettings->mTCStream) {
+		memset (&it, 0, sizeof (it));
+		it.it_value.tv_sec = (int) (mSettings->mAmount / 100.0);
+		it.it_value.tv_usec = (int) 10000 * (mSettings->mAmount - it.it_value.tv_sec * 100.0);
+		err = setitimer( ITIMER_REAL, &it, NULL );
+		if ( err != 0 ) 
+		{
+		    perror("setitimer");
+		    exit(1);
+		}
     }
-    do {
-        // Read the next data block from 
-        // the file if it's file input 
-        if ( isFileInput( mSettings ) ) {
-            Extractor_getNextDataBlock( readAt, mSettings ); 
-            canRead = Extractor_canRead( mSettings ) != 0; 
-        } else
-            canRead = true; 
 
-        // perform write 
-        currLen = write( mSettings->mSock, mBuf, mSettings->mBufLen ); 
-        if ( currLen < 0 ) {
-            WARN_errno( currLen < 0, "write2" ); 
-            break; 
-        }
-	totLen += currLen;
+	if(mSettings->mTCStream)
+	{
+		struct sockaddr_in server_addr, client_addr; 
 
-	if(mSettings->mInterval > 0) {
-    	    gettimeofday( &(reportstruct->packetTime), NULL );
-            reportstruct->packetLen = currLen;
-            ReportPacket( mSettings->reporthdr, reportstruct );
-        }	
+		flow.id	 = 11;
+		flow.rate = mSettings->mTCPRate;
+		printf("rate:%d\n",mSettings->mTCPRate);
+		flow.dport = mSettings->mPort;
+		printf("port:%d\n",mSettings->mPort);
 
-        if ( !mMode_Time ) {
-            /* mAmount may be unsigned, so don't let it underflow! */
-            if( mSettings->mAmount >= currLen ) {
-                mSettings->mAmount -= currLen;
-            } else {
-                mSettings->mAmount = 0;
-            }
-        }
+		if (mSettings->mTCStream)
+			flow.protocol = 0x06;
+		else
+			flow.protocol = 0x11;
+		
+		printf("remote host: %s\n", mSettings->mHost);
+		printf("local host: %s\n", mSettings->mLocalhost);
+		inet_aton(mSettings->mHost, &server_addr.sin_addr);
+		inet_aton(mSettings->mLocalhost, &client_addr.sin_addr);
 
-    } while ( ! (sInterupted  || 
-                   (!mMode_Time  &&  0 >= mSettings->mAmount)) && canRead ); 
+		flow.srcip = (uint32_t)client_addr.sin_addr.s_addr;
+		flow.dstip = (uint32_t)server_addr.sin_addr.s_addr;
 
-    // stop timing
-    gettimeofday( &(reportstruct->packetTime), NULL );
+		add_flow(mSettings->mDev, &flow);
 
+		flow.id = 11; 
+		tcInterval  = mSettings->mTime;
+		printf("interval time:%.2f\n",tcInterval);
+	}
+
+	mStartTime.setnow();
+	mFinishTime = mStartTime;
+	mFinishTime.add(noEndInt);
+
+	if(mSettings->mTCStream)
+		choseFunction = genChoFunc();
+
+	do {
+	
+		if( breakFlag || (!canRead) )
+		{
+			randomDelay();
+			choseFunction = genChoFunc();
+			breakFlag = 0;	
+		}
+		
+		if(mSettings->mTCStream)
+		{
+			mStartTime.setnow();
+			mFinishTime = mStartTime;
+			mFinishTime.add(tcInterval);
+			
+			if(mSettings->mRateFile)
+				flow.rate = (int)getFileRate(mSettings->mRateFileName)/1000;
+			else
+				flow.rate = (int)getRate(choseFunction, tcInterval)/1000;
+				
+			printf("flow rate:%d\n",flow.rate);
+			
+			flow.rate = flow.rate % MAXRATE;
+			if(flow.rate <= 100)
+				flow.rate = 100;
+				
+			if (flow.rate == 0)
+				breakFlag = 1;
+			change_flow(mSettings->mDev, &flow);
+		}
+		
+    	do {		
+			mPacketTime.setnow();
+
+        	// Read the next data block from 
+       		// the file if it's file input 
+        	if ( isFileInput( mSettings ) ) 
+			{
+       	    	Extractor_getNextDataBlock( readAt, mSettings ); 
+        	    canRead = Extractor_canRead( mSettings ) != 0; 
+        	} 
+			else
+			{
+        	    canRead = true; 
+			}
+
+        	// perform write 
+        	currLen = write( mSettings->mSock, mBuf, mSettings->mBufLen ); 
+        	if ( currLen < 0 ) 
+			{
+        	    WARN_errno( currLen < 0, "write2" ); 
+        	    break; 
+        	}
+			totLen += currLen;
+
+			if(mSettings->mInterval > 0) {
+   			    gettimeofday( &(reportstruct->packetTime), NULL );
+        	    reportstruct->packetLen = currLen;
+        	    ReportPacket( mSettings->reporthdr, reportstruct );
+        	}
+		
+			if ( !mMode_Time ) 
+			{
+    	        /* mAmount may be unsigned, so don't let it underflow! */
+    	        if( mSettings->mAmount >= currLen ) 
+				{
+    	            mSettings->mAmount -= currLen;
+    	        } 
+				else 
+				{
+    	            mSettings->mAmount = 0;
+    	        }
+    	    }
+
+		} while ( ! ( sInterupted || 
+				(mMode_Time   &&  mPacketTime.after( mFinishTime ))  ||
+				(!mMode_Time  &&  0 >= mSettings->mAmount) ) && canRead ); 
+	    
+	}while(mSettings->mTCStream);
+   
+   	// stop timing
+   	gettimeofday( &(reportstruct->packetTime), NULL );
+	
     // if we're not doing interval reporting, report the entire transfer as one big packet
-    if(0.0 == mSettings->mInterval) {
+    if(0.0 == mSettings->mInterval) {	
         reportstruct->packetLen = totLen;
         ReportPacket( mSettings->reporthdr, reportstruct );
-    }
-    CloseReport( mSettings->reporthdr, reportstruct );
-
+    }	
+	CloseReport( mSettings->reporthdr, reportstruct );
+	
     DELETE_PTR( reportstruct );
     EndReport( mSettings->reporthdr );
 }
@@ -203,18 +293,20 @@ void Client::RunTCP( void ) {
 
 void Client::Run( void ) {
     struct UDP_datagram* mBuf_UDP = (struct UDP_datagram*) mBuf; 
+    struct Timestamp mPacketTime;
     unsigned long currLen = 0; 
-
+	double mInval;
+	int choseFunction = 5;
     int delay_target = 0; 
     int delay = 0; 
     int adjust = 0; 
-
+	int breakFlag = 0;
     char* readAt = mBuf;
 
 #if HAVE_THREAD
     if ( !isUDP( mSettings ) ) {
-	RunTCP();
-	return;
+		RunTCP();
+		return;
     }
 #endif
     
@@ -226,130 +318,172 @@ void Client::Run( void ) {
         mEndTime.setnow();
         mEndTime.add( mSettings->mAmount / 100.0 );
     }
-
-    if ( isUDP( mSettings ) ) {
-        // Due to the UDP timestamps etc, included 
-        // reduce the read size by an amount 
-        // equal to the header size
     
-        // compute delay for bandwidth restriction, constrained to [0,1] seconds 
-        delay_target = (int) ( mSettings->mBufLen * ((kSecs_to_usecs * kBytes_to_Bits) 
+    mInval = mSettings->mTime;
+    
+	if(mSettings->mConStream) 
+	 	choseFunction = genChoFunc();
+	 	
+	do
+	{
+		if(breakFlag || !canRead)
+		{
+			randomDelay();
+			choseFunction = genChoFunc();
+			breakFlag = 0;
+		}
+		
+		if(mSettings->mConStream)
+		{
+			if(mSettings->mRateFile)
+				mSettings->mUDPRate = getFileRate(mSettings->mRateFileName);
+			else
+				mSettings->mUDPRate = getRate(choseFunction, mInval);
+			printf("------UDP Rate = %d Bytes/s------\n",mSettings->mUDPRate);
+			
+			if(mSettings->mUDPRate == 0)
+				breakFlag = 1;
+		}
+		
+    	if ( isUDP( mSettings ) ) {
+    	    // Due to the UDP timestamps etc, included 
+    	    // reduce the read size by an amount 
+    	    // equal to the header size
+    
+   	   		// compute delay for bandwidth restriction, constrained to [0,1] seconds 
+  	    	delay_target = (int) ( mSettings->mBufLen * ((kSecs_to_usecs * kBytes_to_Bits) 
                                                      / mSettings->mUDPRate) ); 
-        if ( delay_target < 0  || 
-             delay_target > (int) 1 * kSecs_to_usecs ) {
-            fprintf( stderr, warn_delay_large, delay_target / kSecs_to_usecs ); 
-            delay_target = (int) kSecs_to_usecs * 1; 
-        }
-        if ( isFileInput( mSettings ) ) {
-            if ( isCompat( mSettings ) ) {
-                Extractor_reduceReadSize( sizeof(struct UDP_datagram), mSettings );
-                readAt += sizeof(struct UDP_datagram);
-            } else {
-                Extractor_reduceReadSize( sizeof(struct UDP_datagram) +
-                                          sizeof(struct client_hdr), mSettings );
-                readAt += sizeof(struct UDP_datagram) +
-                          sizeof(struct client_hdr);
-            }
-        }
-    }
+        	if ( delay_target < 0  || 
+        	     delay_target > (int) 1 * kSecs_to_usecs ) {
+        	    fprintf( stderr, warn_delay_large, delay_target / kSecs_to_usecs ); 
+        	    delay_target = (int) kSecs_to_usecs * 1; 
+        	}
+        	if ( isFileInput( mSettings ) ) {
+        	    if ( isCompat( mSettings ) ) {
+        	        Extractor_reduceReadSize( sizeof(struct UDP_datagram), mSettings );
+        	        readAt += sizeof(struct UDP_datagram);
+        	    } else {
+        	        Extractor_reduceReadSize( sizeof(struct UDP_datagram) +
+        	                                  sizeof(struct client_hdr), mSettings );
+        	        readAt += sizeof(struct UDP_datagram) +
+        	                  sizeof(struct client_hdr);
+        	    }
+        	}
+   	 	}
 
-    ReportStruct *reportstruct = NULL;
-
-    // InitReport handles Barrier for multiple Streams
-    mSettings->reporthdr = InitReport( mSettings );
-    reportstruct = new ReportStruct;
-    reportstruct->packetID = 0;
-
-    lastPacketTime.setnow();
-    
-    do {
-
-        // Test case: drop 17 packets and send 2 out-of-order: 
-        // sequence 51, 52, 70, 53, 54, 71, 72 
-        //switch( datagramID ) { 
-        //  case 53: datagramID = 70; break; 
-        //  case 71: datagramID = 53; break; 
-        //  case 55: datagramID = 71; break; 
-        //  default: break; 
-        //} 
-        gettimeofday( &(reportstruct->packetTime), NULL );
-
-        if ( isUDP( mSettings ) ) {
-            // store datagram ID into buffer 
-            mBuf_UDP->id      = htonl( (reportstruct->packetID)++ ); 
-            mBuf_UDP->tv_sec  = htonl( reportstruct->packetTime.tv_sec ); 
-            mBuf_UDP->tv_usec = htonl( reportstruct->packetTime.tv_usec );
-
-            // delay between writes 
-            // make an adjustment for how long the last loop iteration took 
-            // TODO this doesn't work well in certain cases, like 2 parallel streams 
-            adjust = delay_target + lastPacketTime.subUsec( reportstruct->packetTime ); 
-            lastPacketTime.set( reportstruct->packetTime.tv_sec, 
-                                reportstruct->packetTime.tv_usec ); 
-
-            if ( adjust > 0  ||  delay > 0 ) {
-                delay += adjust; 
-            }
-        }
-
-        // Read the next data block from 
-        // the file if it's file input 
-        if ( isFileInput( mSettings ) ) {
-            Extractor_getNextDataBlock( readAt, mSettings ); 
-            canRead = Extractor_canRead( mSettings ) != 0; 
-        } else
-            canRead = true; 
-
-        // perform write 
-        currLen = write( mSettings->mSock, mBuf, mSettings->mBufLen ); 
-        if ( currLen < 0 && errno != ENOBUFS ) {
-            WARN_errno( currLen < 0, "write2" ); 
-            break; 
-        }
-
-        // report packets 
-        reportstruct->packetLen = currLen;
-        ReportPacket( mSettings->reporthdr, reportstruct );
-        
-        if ( delay > 0 ) {
-            delay_loop( delay ); 
-        }
-        if ( !mMode_Time ) {
-            /* mAmount may be unsigned, so don't let it underflow! */
-            if( mSettings->mAmount >= currLen ) {
-                mSettings->mAmount -= currLen;
-            } else {
-                mSettings->mAmount = 0;
-            }
-        }
-
-    } while ( ! (sInterupted  || 
-                 (mMode_Time   &&  mEndTime.before( reportstruct->packetTime ))  || 
-                 (!mMode_Time  &&  0 >= mSettings->mAmount)) && canRead ); 
-
-    // stop timing
-    gettimeofday( &(reportstruct->packetTime), NULL );
-    CloseReport( mSettings->reporthdr, reportstruct );
-
-    if ( isUDP( mSettings ) ) {
-        // send a final terminating datagram 
-        // Don't count in the mTotalLen. The server counts this one, 
-        // but didn't count our first datagram, so we're even now. 
-        // The negative datagram ID signifies termination to the server. 
-    
-        // store datagram ID into buffer 
-        mBuf_UDP->id      = htonl( -(reportstruct->packetID)  ); 
-        mBuf_UDP->tv_sec  = htonl( reportstruct->packetTime.tv_sec ); 
-        mBuf_UDP->tv_usec = htonl( reportstruct->packetTime.tv_usec ); 
-
-        if ( isMulticast( mSettings ) ) {
-            write( mSettings->mSock, mBuf, mSettings->mBufLen ); 
-        } else {
-            write_UDP_FIN( ); 
-        }
-    }
-    DELETE_PTR( reportstruct );
-    EndReport( mSettings->reporthdr );
+	    ReportStruct *reportstruct = NULL;
+	
+	    // InitReport handles Barrier for multiple Streams
+	    mSettings->reporthdr = InitReport( mSettings );
+	    reportstruct = new ReportStruct;
+	    reportstruct->packetID = 0;
+	
+	    lastPacketTime.setnow();
+	     
+		if(mSettings->mConStream)
+		{
+			mEndTime.setnow();
+			mEndTime.add( mInval );
+		}
+	    
+	    do {
+	        // Test case: drop 17 packets and send 2 out-of-order: 
+	        // sequence 51, 52, 70, 53, 54, 71, 72 
+	        //switch( datagramID ) { 
+	        //  case 53: datagramID = 70; break; 
+	        //  case 71: datagramID = 53; break; 
+	        //  case 55: datagramID = 71; break; 
+	        //  default: break; 
+	        //} 
+	        gettimeofday( &(reportstruct->packetTime), NULL );
+	
+			mPacketTime.setnow();
+			
+	        if ( isUDP( mSettings ) ) {
+	            // store datagram ID into buffer 
+	            mBuf_UDP->id      = htonl( (reportstruct->packetID)++ ); 
+	            mBuf_UDP->tv_sec  = htonl( reportstruct->packetTime.tv_sec ); 
+	            mBuf_UDP->tv_usec = htonl( reportstruct->packetTime.tv_usec );
+	
+	            // delay between writes 
+	            // make an adjustment for how long the last loop iteration took 
+	            // TODO this doesn't work well in certain cases, like 2 parallel streams 
+	            adjust = delay_target + lastPacketTime.subUsec( reportstruct->packetTime ); 
+	            lastPacketTime.set( reportstruct->packetTime.tv_sec, 
+	                                reportstruct->packetTime.tv_usec ); 
+	
+	            if ( adjust > 0  ||  delay > 0 ) {
+	                delay += adjust; 
+	            }
+	        }
+	
+	        // Read the next data block from 
+	        // the file if it's file input 
+	        if ( isFileInput( mSettings ) ) {
+	            Extractor_getNextDataBlock( readAt, mSettings ); 
+	            canRead = Extractor_canRead( mSettings ) != 0; 
+	        } else
+	            canRead = true; 
+	
+	        // perform write 
+	        currLen = write( mSettings->mSock, mBuf, mSettings->mBufLen ); 
+	        if ( currLen < 0 && errno != ENOBUFS ) {
+	            WARN_errno( currLen < 0, "write2" ); 
+	            break; 
+	        }
+	
+	        // report packets 
+	        reportstruct->packetLen = currLen;
+	        ReportPacket( mSettings->reporthdr, reportstruct );
+	        
+	        if ( delay > 0 ) {
+	            delay_loop( delay ); 
+	        }
+	        
+	        if ( !mMode_Time ) {
+	            /* mAmount may be unsigned, so don't let it underflow! */
+	            if( mSettings->mAmount >= currLen ) {
+	                mSettings->mAmount -= currLen;
+	            } else {
+	                mSettings->mAmount = 0;
+	            }
+	        }
+	
+	    } while ( ! (sInterupted  || 
+	                 (mMode_Time   &&  mPacketTime.after( mEndTime ))  || 
+	                 (!mMode_Time  &&  0 >= mSettings->mAmount)) && canRead ); 
+	
+	    // stop timing
+	    gettimeofday( &(reportstruct->packetTime), NULL );
+	    CloseReport( mSettings->reporthdr, reportstruct );
+	    
+		if(!mSettings->mConStream)	
+		{
+    		if ( isUDP( mSettings ) ) {
+    		    // send a final terminating datagram 
+    		    // Don't count in the mTotalLen. The server counts this one, 
+    		    // but didn't count our first datagram, so we're even now. 
+    		    // The negative datagram ID signifies termination to the server. 
+    	
+    		    // store datagram ID into buffer 
+    		    mBuf_UDP->id      = htonl( -(reportstruct->packetID)  ); 
+    		    mBuf_UDP->tv_sec  = htonl( reportstruct->packetTime.tv_sec ); 
+    		    mBuf_UDP->tv_usec = htonl( reportstruct->packetTime.tv_usec ); 
+		
+		        if ( isMulticast( mSettings ) ) 
+		        {
+		            write( mSettings->mSock, mBuf, mSettings->mBufLen ); 
+		        } else 
+		        {
+		            write_UDP_FIN( ); 	
+    	    	}
+    		}
+    	}
+    	
+    	DELETE_PTR( reportstruct );
+    	EndReport( mSettings->reporthdr );
+    	
+    }while(mSettings->mConStream);
 } 
 // end Run
 

@@ -1,0 +1,21 @@
+參數設置：
+
+如果是生成UDP串流，
+iperf -u -s
+iperf -u -c ipAddress -x -z interval
+
+-x指定UDP生成串流，-z是變化間隔，就是每個速率持續多久
+至於函數，預設為5，即sin函數(可隨機生成)
+
+如果是生成TCP串流，
+iperf -s
+iperf -c ipAddress -e netadapter -B localhost -z interval
+
+-e後面接網卡，比如說eth0
+-B後面接本地的IP地址
+-z同上
+函數預設為sin函數
+
+-j用法
+新增速率文件
+

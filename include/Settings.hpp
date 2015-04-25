@@ -125,28 +125,13 @@ typedef struct thread_Settings {
     int mBufLen;                    // -l
     int mMSS;                       // -M
     int mTCPWin;                    // -w
-    /*   flags is a BitMask of old bools
-        bool   mBufLenSet;              // -l
-        bool   mCompat;                 // -C
-        bool   mDaemon;                 // -D
-        bool   mDomain;                 // -V
-        bool   mFileInput;              // -F or -I
-        bool   mNodelay;                // -N
-        bool   mPrintMSS;               // -m
-        bool   mRemoveService;          // -R
-        bool   mStdin;                  // -I
-        bool   mStdout;                 // -o
-        bool   mSuggestWin;             // -W
-        bool   mUDP;                    // -u
-        bool   mMode_time;
-        bool   mReportSettings;
-        bool   mMulticast;
-        bool   mNoSettingsReport;       // -x s
-        bool   mNoConnectionReport;     // -x c
-        bool   mNoDataReport;           // -x d
-        bool   mNoServerReport;         // -x 
-        bool   mNoMultReport;           // -x m
-        bool   mSinlgeClient;           // -1 */
+	int mTCPRate;					// -y
+	bool   mConStream;				// -x
+	bool   mTCStream;
+	double mTime;					// -z
+	char* mDev;						// -e
+	bool  mRateFile;
+	char* mRateFileName;			// -j
     int flags; 
     // enums (which should be special int's)
     ThreadMode mThreadMode;         // -s or -c

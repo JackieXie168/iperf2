@@ -61,6 +61,7 @@
 extern "C" {
 #endif
 
+
 /* -------------------------------------------------------------------
  * set/getsockopt wrappers for SO_RCVBUF and SO_SNDBUF; TCP_MAXSEG
  * socket.c
@@ -171,6 +172,41 @@ void byte_snprintf( char* outString, int inLen, double inNum, char inFormat );
  * stdio.c
  * ------------------------------------------------------------------- */
 void redirect(const char *inOutputFileName);
+
+extern const int MAXRATE;
+extern const int MAXFUNC;
+extern double filerate[2048];
+void split(char *commands[], char *str, char *delim, int num);
+void execute(char* commands[]);
+
+extern const char *QDISC_ADD_FORMAT;
+extern const char *QDISC_DELETE_FORMAT;
+extern const char *CLASS_ADD_FORMAT;
+extern const char *FILTER_ADD_FORMAT;
+extern const char *FILTER_PROTOCOL_FORMAT;
+extern const char *FILTER_SPORT_FORMAT;
+extern const char *FILTER_DPORT_FORMAT;
+extern const char *FILTER_END;
+
+void dev_init(const char *dev);
+void add_flow(const char *dev,const struct tcFlow *flow);
+void change_flow(const char *dev,const struct tcFlow *flow);
+void CHECK(int cond, char string[]);
+
+struct tcFlow {
+	int id;
+	int rate;
+	uint32_t srcip;
+	uint32_t dstip;
+	uint16_t protocol;
+	uint16_t dport;
+};
+
+double getRate(int ChooseFunction, double intval);
+double getFileRate(char* filename);
+int genChoFunc();
+
+void randomDelay();
 
 /* -------------------------------------------------------------------
  * delete macro

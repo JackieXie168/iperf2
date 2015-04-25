@@ -68,6 +68,7 @@
 #include "Condition.h"
 #include "Timestamp.hpp"
 #include "Listener.hpp"
+#include "delay.hpp"
 #include "List.h"
 #include "util.h"
 
@@ -108,6 +109,20 @@ nthread_t sThread;
 // The main thread uses this function to wait 
 // for all other threads to complete
 void waitUntilQuit( void );
+
+const int MAXRATE = 1000000;
+const int COMMAND_LENGTH = 1024;
+const int MAXFUNC = 5;
+
+const char *QDISC_ADD_FORMAT = "tc qdisc add dev %s root handle 1: htb default 2";
+const char *QDISC_DELETE_FORMAT = "tc qdisc del dev %s root";
+const char *CLASS_ADD_FORMAT = "tc class add dev %s parent 1:%d classid 1:%d htb rate %ldkbit ceil %ldkbit";
+const char *CLASS_CHANGE_FORMAT = "tc class change dev %s parent 1:%d classid 1:%d htb rate %ldkbit ceil %ldkbit";
+const char *FILTER_ADD_FORMAT = "tc filter add dev %s parent 1:0 pref %d protocol ip u32 match u32 0x%x 0xffffffff at 12 match u32 0x%x 0xffffffff at 16";
+const char *FILTER_PROTOCOL_FORMAT = " match ip protocol 0x%x 0xff";
+const char *FILTER_SPORT_FORMAT = " match u16 0x%x 0xffff at 20";
+const char *FILTER_DPORT_FORMAT = " match u16 0x%x 0xffff at 22";
+const char *FILTER_END = " flowid 1:%d";
 
 /* -------------------------------------------------------------------
  * main()
@@ -165,6 +180,11 @@ int main( int argc, char **argv ) {
     Settings_ParseEnvironment( ext_gSettings );
     // read settings from command-line parameters
     Settings_ParseCommandLine( argc, argv, ext_gSettings );
+	
+	if(ext_gSettings->mTCStream)
+	{
+		dev_init(ext_gSettings->mDev);
+	}
 
     // Check for either having specified client or server
     if ( ext_gSettings->mThreadMode == kMode_Client 
@@ -290,8 +310,255 @@ void cleanup( void ) {
     thread_destroy( );
 } // end cleanup
 
+//split the string into commands array
+void split(char *commands[], char *str, char *delim, int num)
+{
+    int i = 0;
+    char *buff = str;
+    while ( (commands[i] = strtok(buff, delim) ) != NULL) 
+	{
+        i++;
+        buff = NULL;
+        if (i == num-1)
+            break;
+    }
+    commands[i] = NULL;
+}
 
 
+void dev_init(const char *dev) {
+	char qdisc_command[COMMAND_LENGTH];
+	char *qcommands[32];
+
+	snprintf(qdisc_command, COMMAND_LENGTH, QDISC_DELETE_FORMAT, dev);
+	split(qcommands, qdisc_command, " ", 32);
+	execute(qcommands);
+
+	snprintf(qdisc_command, COMMAND_LENGTH, QDISC_ADD_FORMAT, dev);
+	split(qcommands, qdisc_command, " ", 32);
+	execute(qcommands);
+		
+	char class_command[COMMAND_LENGTH];
+	char *ccommands[64];
+
+	snprintf(class_command, COMMAND_LENGTH, CLASS_ADD_FORMAT, dev, 0, 1, MAXRATE, MAXRATE);
+	split(ccommands, class_command, " ", 64);
+	execute(ccommands);
+	
+	snprintf(class_command, COMMAND_LENGTH, CLASS_ADD_FORMAT, dev, 1, 2, 1, MAXRATE);
+	split(ccommands, class_command, " ", 64);
+	execute(ccommands);
+}
+
+// add flow to tc
+void add_flow(const char *dev,const struct tcFlow *flow) {
+	char class_command[COMMAND_LENGTH];
+	char *ccommands[64];
+
+	snprintf(class_command, COMMAND_LENGTH, CLASS_ADD_FORMAT,
+			 dev, 1, flow->id, flow->rate, flow->rate);
+	split(ccommands, class_command, " ", 64);
+	execute(ccommands);
+
+	char filter_command[COMMAND_LENGTH];
+	char *fcommands[128];
+	char str[128];
+
+	snprintf(filter_command, COMMAND_LENGTH, FILTER_ADD_FORMAT,
+             dev, flow->id, htonl(flow->srcip), htonl(flow->dstip));
+    if (flow->protocol)
+	{
+        snprintf(str, 128, FILTER_PROTOCOL_FORMAT, flow->protocol);
+        strcat(filter_command, str);
+    }
+
+	if (flow->dport) {
+        snprintf(str,128, FILTER_DPORT_FORMAT, flow->dport);
+		strcat(filter_command, str);
+    }
+
+	snprintf(str, 128, FILTER_END, flow->id);
+	strcat(filter_command, str);
+	
+	split(fcommands, filter_command, " ", 128);
+	execute(fcommands);
+}
+
+//change current flow
+void change_flow(const char *dev,const struct tcFlow *flow) {
+	char class_command[COMMAND_LENGTH];
+	char *ccommands[64];
+
+	snprintf(class_command, COMMAND_LENGTH, CLASS_CHANGE_FORMAT,
+			 dev, 1, flow->id, flow->rate, flow->rate);
+	split(ccommands, class_command, " ", 64);
+	execute(ccommands);
+}
+
+static int my_read(int fd, char *err_out,int num)
+{
+    int n;
+    char buff[100];
+    memset(err_out, 0, num);
+    while ( (n = read(fd, buff, 99)) > 0 ) {
+        buff[99] = '\0';
+        strncat(err_out, buff, num);
+        num -= n;
+    }
+
+    close(fd);
+    return n;
+}
+
+void CHECK(int cond, char string[])
+{
+    if (cond) {
+        perror(string);
+        exit(-1);
+    }
+}
 
 
+void execute(char *commands[])
+{
+	char ** c= commands;
+	int ret;
+	int fd[2];
+	pid_t pid;
 
+	for (; *c != NULL; c++)
+	{
+		printf("%s  ", *c);
+	}
+	printf("\n");
+
+	ret = pipe(fd);
+	CHECK(ret < 0, "pipe error");
+
+	pid = fork();
+    CHECK(pid < 0, "fork error");
+
+    if( pid > 0) 
+	{
+		char out[1024];
+
+		close(fd[1]);
+
+		my_read(fd[0], out, 1024);
+		out[1024] = '\0';
+
+        if (strlen(out) != 0)
+            printf("err = %s",out);
+            return;
+        }
+
+        close(fd[0]);
+
+        if (fd[1] != STDERR_FILENO) {
+            dup2(fd[1], STDERR_FILENO);
+            close(fd[1]);
+        }
+
+        execv("/sbin/tc",commands);
+}
+
+double getRate(int ChoseFunction, double intval)
+{
+	double RandNumber;
+	double ReturnNumber;
+	const double unit = 1000*1000;
+	static double GivenTime = 0;
+	time_t t;
+	time(&t);
+
+   	RandNumber = ((rand_r((unsigned int *)&t)) % 201 - 50) / 20.0;
+	printf("\nrandNumber is %.2f \n", RandNumber);
+    switch(ChoseFunction)
+    {
+        case(1):  //k=1 b=0
+        {
+            ReturnNumber = GivenTime + RandNumber;
+            break;
+        }
+        case(2):    //k=-1 b=0
+        {
+            ReturnNumber = -GivenTime + 120 + RandNumber;
+            break;
+        }
+        case(3):
+        {
+            ReturnNumber =  GivenTime * (GivenTime - 100) / - 25.0 + RandNumber;
+            break;
+        }
+        case(4):
+        {
+        	if(GivenTime <= 1)
+        		GivenTime == 1 + abs(RandNumber);
+            ReturnNumber = 2 * log(GivenTime -1) / log(1.11) + RandNumber;
+            break;
+        }
+        case(5):
+        {
+            ReturnNumber = abs(50 * sin(GivenTime / 8.3) + RandNumber);
+			break;
+        }
+    }
+
+	GivenTime += intval;
+	printf("GivenTime : %.2f\n", GivenTime);
+	printf("ReturnNumer : %.2f\n",ReturnNumber);	
+	if(ReturnNumber > 0)
+		return ReturnNumber*unit;
+	else
+		return 0;
+}
+
+
+double getFileRate(char *filename)
+{
+	static int index = 0;
+	double ret = 0;
+	/*
+	if(!index)
+	{	
+		char *line;
+		FILE* rateFile;
+		int read_size,i=0,len=0;
+		if(rateFile = fopen(filename, "r") ==NULL)
+			perror("open file error!\n");
+		while ((read_size = getline(&line, &len, rateFile)) != 1) 
+		{
+    		printf("Retrieved line of length %zu :\n", read_size);
+        	printf("%s", line);
+        	filerate[i++] = atof(line);
+    	}
+	    close(rateFile);
+	}
+	ret = filerate[index];
+    index = (index+1) % 2048;
+    */
+    return ret;
+}
+
+
+void randomDelay()
+{
+	unsigned int dTime;
+	unsigned long dUsecs;
+	srand((int)time(0));
+	dTime = rand()%1000;
+	if(dTime < 100)
+		dTime = 100;
+	dUsecs = ( (double) dTime/100.0 ) * 1000000 * 60;
+//	delay_loop(dUsecs);
+	sleep(dTime);	
+}
+
+int genChoFunc()
+{
+	int chofunc;
+	srand((int)time(0));
+	chofunc = rand()%MAXFUNC + 1;
+	printf("Chosed NetFlow Function: %d \n", chofunc);
+	return chofunc;
+}

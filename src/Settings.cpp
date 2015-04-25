@@ -101,9 +101,11 @@ const struct option long_options[] =
 {"udp",              no_argument, NULL, 'u'},
 {"version",          no_argument, NULL, 'v'},
 {"window",     required_argument, NULL, 'w'},
-{"reportexclude", required_argument, NULL, 'x'},
-{"reportstyle",required_argument, NULL, 'y'},
-
+{"tcp_rate",   required_argument, NULL, 'y'},
+{"continuous_stream",no_argument, NULL, 'x'},
+{"time_interval",required_argument,	NULL, 'z'},
+{"device",     required_argument, NULL, 'e'},
+{"rate_file",  required_argument, NULL, 'j'},
 // more esoteric options
 {"bind",       required_argument, NULL, 'B'},
 {"compatibility",    no_argument, NULL, 'C'},
@@ -145,9 +147,11 @@ const struct option env_options[] =
 {"IPERF_UDP",              no_argument, NULL, 'u'},
 // skip version
 {"TCP_WINDOW_SIZE",  required_argument, NULL, 'w'},
-{"IPERF_REPORTEXCLUDE", required_argument, NULL, 'x'},
-{"IPERF_REPORTSTYLE",required_argument, NULL, 'y'},
-
+{"TCPRATE",			 required_argument, NULL, 'y'},
+{"CONTINUOUS_STREAM",	   no_argument, NULL, 'x'},
+{"TIME_INTERVAL",	 required_argument,	NULL, 'z'},
+{"DEVICE",			 required_argument, NULL, 'e'},
+{"RATEFILE",		 required_argument, NULL, 'j'},
 // more esoteric options
 {"IPERF_BIND",       required_argument, NULL, 'B'},
 {"IPERF_COMPAT",           no_argument, NULL, 'C'},
@@ -169,7 +173,7 @@ const struct option env_options[] =
 
 #define SHORT_OPTIONS()
 
-const char short_options[] = "1b:c:df:hi:l:mn:o:p:rst:uvw:x:y:B:CDF:IL:M:NP:RS:T:UVWZ:";
+const char short_options[] = "1b:c:df:hi:l:mn:o:p:rst:uvw:y:xz:e:j:B:CDF:IL:M:NP:RS:T:UVWZ:";
 
 /* -------------------------------------------------------------------
  * defaults
@@ -203,7 +207,7 @@ void Settings_Initialize( thread_Settings *main ) {
     // skip help                         // -h,
     //main->mBufLenSet  = false;         // -l,	
     main->mBufLen       = 128 * 1024;      // -l,  8 Kbyte
-    //main->mInterval     = 0;           // -i,  ie. no periodic bw reports
+    main->mInterval     = 0;           // -i,  ie. no periodic bw reports
     //main->mPrintMSS   = false;         // -m,  don't print MSS
     // mAmount is time also              // -n,  N/A
     //main->mOutputFileName = NULL;      // -o,  filename
@@ -214,8 +218,13 @@ void Settings_Initialize( thread_Settings *main ) {
     // mUDPRate > 0 means UDP            // -u,  N/A, see kDefault_UDPRate
     // skip version                      // -v,
     //main->mTCPWin       = 0;           // -w,  ie. don't set window
+	main->mConStream  = false;		   // -x,  ie. don't gen continuous stream
+	main->mTime		  = 0;			   // -z,  ie. disabled
+	main->mDev		  = "eth0";		   // -e,  ie. default port
+	main->mTCPRate	  = 100000;
+	main->mRateFile	  = false;
 
-    // more esoteric options
+	// more esoteric options
     //main->mLocalhost    = NULL;        // -B,  none
     //main->mCompat     = false;         // -C,  run in Compatibility mode
     //main->mDaemon     = false;         // -D,  run as a daemon
@@ -311,7 +320,8 @@ void Settings_ParseCommandLine( int argc, char **argv, thread_Settings *mSetting
 
 void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtSettings ) {
     char outarg[100];
-
+	int len;
+	
     switch ( option ) {
         case '1': // Single Client
             setSingleClient( mExtSettings );
@@ -413,6 +423,31 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
 
             break;
 
+		case 'y': // tcp rate
+			mExtSettings->mTCPRate = atoi( optarg );
+			break;
+
+		case 'x': // set option to generate continuous stream
+			mExtSettings->mConStream = true;
+			break;
+		
+		case 'z': // set streamMode time interval
+			mExtSettings->mTime = atof( optarg );
+			break;
+		
+		case 'e': // devive interface
+			len = strlen( optarg );
+			mExtSettings->mDev = new char[len+1];
+			strncpy(mExtSettings->mDev, optarg, len+1);
+			mExtSettings->mTCStream = true;
+			break;
+
+        case 'j' : // Get the input for the rate stream from a file
+			mExtSettings->mRateFile = true;
+            mExtSettings->mRateFileName = new char[strlen(optarg)+1];
+            strcpy( mExtSettings->mRateFileName, optarg);
+            break;
+            
         case 'm': // print TCP MSS
             setPrintMSS( mExtSettings );
             break;
@@ -492,47 +527,6 @@ void Settings_Interpret( char option, const char *optarg, thread_Settings *mExtS
 
             if ( mExtSettings->mTCPWin < 2048 ) {
                 fprintf( stderr, warn_window_small, mExtSettings->mTCPWin );
-            }
-            break;
-
-        case 'x': // Limit Reports
-            while ( *optarg != '\0' ) {
-                switch ( *optarg ) {
-                    case 's':
-                    case 'S':
-                        setNoSettReport( mExtSettings );
-                        break;
-                    case 'c':
-                    case 'C':
-                        setNoConnReport( mExtSettings );
-                        break;
-                    case 'd':
-                    case 'D':
-                        setNoDataReport( mExtSettings );
-                        break;
-                    case 'v':
-                    case 'V':
-                        setNoServReport( mExtSettings );
-                        break;
-                    case 'm':
-                    case 'M':
-                        setNoMultReport( mExtSettings );
-                        break;
-                    default:
-                        fprintf(stderr, warn_invalid_report, *optarg);
-                }
-                optarg++;
-            }
-            break;
-
-        case 'y': // Reporting Style
-            switch ( *optarg ) {
-                case 'c':
-                case 'C':
-                    mExtSettings->mReportMode = kReport_CSV;
-                    break;
-                default:
-                    fprintf( stderr, warn_invalid_report_style, optarg );
             }
             break;
 
