@@ -54,13 +54,18 @@
  * ------------------------------------------------------------------- */
 
 #define HEADERS()
-#include <sched.h>
 #include "headers.h"
 #include "Server.hpp"
 #include "List.h"
 #include "Extractor.h"
 #include "Reporter.h"
 #include "Locale.h"
+#ifdef HAVE_SCHED_SETSCHEDULER
+#include <sched.h>
+#endif
+#ifdef HAVE_MLOCKALL
+#include <sys/mman.h>
+#endif
 
 /* -------------------------------------------------------------------
  * Stores connected socket and socket info.
@@ -100,10 +105,11 @@ void Server::Run( void ) {
     long currLen; 
     max_size_t totLen = 0;
     struct UDP_datagram* mBuf_UDP  = (struct UDP_datagram*) mBuf; 
-    int running;
-
     ReportStruct *reportstruct = NULL;
+    int running;
+    static struct timeval watchdog;
 
+#if HAVE_DECL_SO_TIMESTAMP
     // Structures needed for recvmsg
     // Use to get kernel timestamps of packets
     struct sockaddr_storage srcaddr;
@@ -119,7 +125,7 @@ void Server::Run( void ) {
     struct cmsghdr *cmsg = (struct cmsghdr *) &ctrl;
     message.msg_control = (char *) ctrl;
     message.msg_controllen = sizeof(ctrl);
-    struct sched_param sp;
+#endif
 
     reportstruct = new ReportStruct;
     if ( reportstruct != NULL ) {
@@ -128,42 +134,68 @@ void Server::Run( void ) {
 	running=1;
 	// Set the socket timeout to 1/2 the report interval
 	if (mSettings->mInterval) {
+#ifdef WIN32
+	  // Windows SO_RCVTIMEO uses ms
+	    DWORD timeout;
+	    timeout = (mSettings->mInterval / 2.0) * 1e3;
+#else
+	  // Linux SO_RCVTIMEO uses timeval
 	    struct timeval timeout;
 	    double intpart, fractpart, half;
 	    half = mSettings->mInterval / 2;
 	    fractpart = modf(half, &intpart);
 	    timeout.tv_sec = (int) (intpart);
 	    timeout.tv_usec = (int) (fractpart * 1e6);
+#endif
 	    if (setsockopt( mSettings->mSock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) < 0 ) {
 		WARN_errno( mSettings->mSock == SO_RCVTIMEO, "socket" );
 	    }
 	}
+#if HAVE_DECL_SO_TIMESTAMP
         if ( isUDP( mSettings ) ) {
 	    int timestampOn = 1;
 	    if (setsockopt(mSettings->mSock, SOL_SOCKET, SO_TIMESTAMP, (int *) &timestampOn, sizeof(timestampOn)) < 0) {
 		WARN_errno( mSettings->mSock == SO_TIMESTAMP, "socket" );
 	    }
 	}
-       sp.sched_priority = sched_get_priority_max(SCHED_RR); 
-       // SCHED_OTHER, SCHED_FIFO, SCHED_RR
-       if (sched_setscheduler(0, SCHED_RR, &sp) < 0) 
-	     perror("Client set scheduler");
-
+#endif
+#ifdef HAVE_SCHED_SETSCHEDULER
+	if ( isRealtime( mSettings ) ) {
+	    struct sched_param sp;
+	    sp.sched_priority = sched_get_priority_max(SCHED_RR); 
+	    // SCHED_OTHER, SCHED_FIFO, SCHED_RR
+	    if (sched_setscheduler(0, SCHED_RR, &sp) < 0)  {
+		perror("Client set scheduler");
+#ifdef HAVE_MLOCKALL
+	    } else if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0) { 
+		// lock the threads memory
+		perror ("mlockall");
+#endif
+	    }
+	}
+#endif
+	gettimeofday( &watchdog, NULL );
         do {
-            // perform read 
 	    reportstruct->emptyreport=0;
+#if HAVE_DECL_SO_TIMESTAMP
+            // perform read 
             currLen = recvmsg( mSettings->mSock, &message, 0 );
 	    if (currLen <= 0) {
+		// Socket read timeout or read error
+		reportstruct->emptyreport=1;
+		gettimeofday( &(reportstruct->packetTime), NULL );
                 // End loop on 0 read or socket error
 		// except for socket read timeout
-		if (currLen != -1 || errno != EAGAIN) {
+		if (currLen == 0 || (TimeDifference(reportstruct->packetTime, watchdog) > (mSettings->mAmount / 100)) ||
+#ifdef WIN32
+		    (WSAGetLastError() != WSAEWOULDBLOCK)
+#else
+		    (errno != EAGAIN && errno != EWOULDBLOCK)
+#endif		     
+		    ) {
 		    running = 0;
-		} else {
-		    // Socket read timeout
-		    // o  let ReportPacket know via an "empty" report
-		    reportstruct->emptyreport=1;
-		    currLen=0;
 		}
+		currLen=0;
 	    }
 
             if (!reportstruct->emptyreport && isUDP( mSettings ) ) {
@@ -179,10 +211,38 @@ void Server::Run( void ) {
 		} else {
 		    gettimeofday( &(reportstruct->packetTime), NULL );
 		}
-            } else {
+            }
+#else
+            // perform read 
+            currLen = recv( mSettings->mSock, mBuf, mSettings->mBufLen, 0 );
+	    if (currLen <= 0) {
+		reportstruct->emptyreport=1;
+                // End loop on 0 read or socket error
+		// except for socket read timeout
+		if (currLen == 0 ||
+#ifdef WIN32
+		    (WSAGetLastError() != WSAEWOULDBLOCK)
+#else
+		    (errno != EAGAIN && errno != EWOULDBLOCK)
+#endif		     
+		    ) {
+		    running = 0;
+		}
+		currLen = 0;
+	    }
+            if (!reportstruct->emptyreport && isUDP( mSettings ) ) {
+		gettimeofday( &(reportstruct->packetTime), NULL );
+		reportstruct->packetLen = currLen;
+                // read the datagram ID and sentTime out of the buffer 
+		reportstruct->packetID = ntohl( mBuf_UDP->id ); 
+		reportstruct->sentTime.tv_sec = ntohl( mBuf_UDP->tv_sec  );
+		reportstruct->sentTime.tv_usec = ntohl( mBuf_UDP->tv_usec ); 
+            }
+#endif
+	    if (currLen) {
+		watchdog = reportstruct->packetTime;
 		totLen += currLen;
 	    }
-        
             // terminate when datagram begins with negative index 
             // the datagram ID should be correct, just negated 
             if ( reportstruct->packetID < 0 ) {
@@ -193,17 +253,14 @@ void Server::Run( void ) {
 
 	    if ( isUDP (mSettings)) {
 		ReportPacket( mSettings->reporthdr, reportstruct );
-            } else if ( !isUDP (mSettings) && mSettings->mInterval > 0) {
+            } else {
+		// TCP case
                 reportstruct->packetLen = currLen;
                 gettimeofday( &(reportstruct->packetTime), NULL );
                 ReportPacket( mSettings->reporthdr, reportstruct );
             }
-
-
-
         } while (running); 
-        
-        
+                
         // stop timing 
         gettimeofday( &(reportstruct->packetTime), NULL );
         
@@ -267,15 +324,27 @@ void Server::write_UDP_AckFIN( ) {
             hdr->total_len1   = htonl( (long) (stats->TotalLen >> 32) );
             hdr->total_len2   = htonl( (long) (stats->TotalLen & 0xFFFFFFFF) );
             hdr->stop_sec     = htonl( (long) stats->endTime );
-            hdr->stop_usec    = htonl( (long)((stats->endTime - (long)stats->endTime)
-                                              * rMillion));
+            hdr->stop_usec    = htonl( (long)((stats->endTime - (long)stats->endTime) * rMillion));
             hdr->error_cnt    = htonl( stats->cntError );
             hdr->outorder_cnt = htonl( stats->cntOutofOrder );
             hdr->datagrams    = htonl( stats->cntDatagrams );
             hdr->jitter1      = htonl( (long) stats->jitter );
-            hdr->jitter2      = htonl( (long) ((stats->jitter - (long)stats->jitter) 
-                                               * rMillion) );
-
+            hdr->jitter2      = htonl( (long) ((stats->jitter - (long)stats->jitter) * rMillion) );
+            hdr->minTransit1  = htonl( (long) stats->transit.totminTransit );
+            hdr->minTransit2  = htonl( (long) ((stats->transit.totminTransit - (long)stats->transit.totminTransit) * rMillion) );
+            hdr->maxTransit1  = htonl( (long) stats->transit.totmaxTransit );
+            hdr->maxTransit2  = htonl( (long) ((stats->transit.totmaxTransit - (long)stats->transit.totmaxTransit) * rMillion) );
+            hdr->sumTransit1  = htonl( (long) stats->transit.totsumTransit );
+            hdr->sumTransit2  = htonl( (long) ((stats->transit.totsumTransit - (long)stats->transit.totsumTransit) * rMillion) );
+            hdr->meanTransit1  = htonl( (long) stats->transit.totmeanTransit );
+            hdr->meanTransit2  = htonl( (long) ((stats->transit.totmeanTransit - (long)stats->transit.totmeanTransit) * rMillion) );
+            hdr->m2Transit1  = htonl( (long) stats->transit.totm2Transit );
+            hdr->m2Transit2  = htonl( (long) ((stats->transit.totm2Transit - (long)stats->transit.totm2Transit) * rMillion) );
+            hdr->vdTransit1  = htonl( (long) stats->transit.totvdTransit );
+            hdr->vdTransit2  = htonl( (long) ((stats->transit.totvdTransit - (long)stats->transit.totvdTransit) * rMillion) );
+            hdr->cntTransit   = htonl( stats->transit.totcntTransit );
+	    hdr->IPGcnt = htonl( (long) (stats->cntDatagrams / (stats->endTime - stats->startTime)));
+	    hdr->IPGsum = htonl(1);
         }
 
         // write data 
