@@ -57,6 +57,7 @@
 
 #include "Thread.h"
 #include "Settings.hpp"
+#include "rdma.h"
 
 class Listener;
 
@@ -71,16 +72,23 @@ public:
     // accepts connections and starts Servers
     void Run( void );
 
+    // RDMA version
+    void RunRDMA( void );
+
     // Starts the Servers as a daemon 
     void runAsDaemon( const char *, int );
 
     void Listen( );
+
+    void ListenRDMA( );
 
     void McastJoin( );
 
     void McastSetTTL( int val );
 
     void Accept( thread_Settings *server );
+
+    void AcceptRDMA( thread_Settings *server );
 
     void UDPSingleServer ();
 
